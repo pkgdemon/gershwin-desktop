@@ -184,8 +184,8 @@ chroot "$ROOTFS" /bin/sh -eu -c '
     pkg install -y git
     git clone --depth 1 -b '"$GERSHWIN_REF"' '"$GERSHWIN_REPO"' /build
     cd /build
-    sh Library/Scripts/Bootstrap.sh
-    sh Library/Scripts/Checkout.sh
+    sh Library/Scripts/bootstrap.sh
+    sh Library/Scripts/checkout.sh
     make install
 '
 [ -d "$ROOTFS/System/Library" ] || { echo "ERROR: /System was not produced" >&2; exit 1; }

@@ -1,0 +1,103 @@
+name: screenshot-gate
+description: >
+  Boot a flavor's ISO in QEMU+OVMF, wait for the Gershwin greeter, log in as
+  admin, and FAIL the job unless the GNUstep desktop actually renders — then
+  capture it as docs/desktop.png. Init-agnostic on purpose: it observes the
+  shared Gershwin greeter/desktop from OUTSIDE the guest through the QEMU
+  monitor, so the same gate works for every flavor regardless of whether
+  launchd, systemd, rc.d or openrc started the session.
+
+inputs:
+  iso-dir:
+    description: Directory containing the ISO to boot (first *.iso is used).
+    required: false
+    default: artifacts
+  arch:
+    description: CPU arch of the ISO (amd64 supported today; arm64 is a TODO).
+    required: false
+    default: amd64
+
+runs:
+  using: composite
+  steps:
+    - name: Install qemu + ovmf + tooling
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf socat imagemagick tesseract-ocr
+
+    - name: Launch VM (serial + VGA + monitor)
+      shell: bash
+      run: |
+        set -e
+        if [ "${{ inputs.arch }}" != "amd64" ]; then
+          echo "::error::screenshot-gate currently supports amd64 only (got '${{ inputs.arch }}')"
+          exit 1
+        fi
+        ISO=$(ls "${{ inputs.iso-dir }}"/*.iso 2>/dev/null | head -1)
+        [ -n "$ISO" ] || { echo "::error::no ISO in ${{ inputs.iso-dir }}"; ls -laR "${{ inputs.iso-dir }}"; exit 1; }
+        mkdir -p tests docs
+        OVMF=/usr/share/ovmf/OVMF.fd
+        [ -f "$OVMF" ] || OVMF=/usr/share/OVMF/OVMF_CODE.fd
+        ACCEL="-accel tcg -cpu qemu64"
+        if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm || true; fi
+        [ -r /dev/kvm ] && [ -w /dev/kvm ] && ACCEL="-accel kvm -cpu host"
+        echo "ISO=$ISO accel=$ACCEL ovmf=$OVMF"
+        nohup qemu-system-x86_64 \
+          -machine q35 -m 4G -smp 2 $ACCEL -bios "$OVMF" \
+          -cdrom "$ISO" -boot d \
+          -vga std \
+          -serial file:tests/serial.log \
+          -monitor unix:tests/mon.sock,server,nowait \
+          -nic user,model=e1000 \
+          -display none -no-reboot \
+          > tests/qemu.stdout 2>&1 &
+        echo $! > tests/qemu.pid
+        for i in $(seq 1 30); do [ -S tests/mon.sock ] && break; sleep 1; done
+        echo "qemu pid $(cat tests/qemu.pid); monitor: $(ls -l tests/mon.sock 2>/dev/null || echo MISSING)"
+
+    - name: boot-test (wait for greeter)
+      shell: bash
+      run: sh "${{ github.action_path }}/boot-test.sh"
+
+    # INPUT step: injects the admin login keystrokes into the greeter. It only
+    # *performs* the login (best-effort, always exits 0) — the judgement is
+    # workspace-test below, so this can never spuriously fail the gate.
+    - name: loginwindow-test (log in as admin)
+      shell: bash
+      run: sh "${{ github.action_path }}/loginwindow-test.sh"
+
+    # GATE (login + screenshot): asserts the RESULT — that the post-login desktop
+    # actually rendered. A rendered desktop is only reachable if login succeeded,
+    # so this one hard check covers BOTH login working and the screenshot showing
+    # a real desktop. Non-zero exit here fails the action → fails the job.
+    - name: workspace-test (verify desktop renders + screenshot)
+      shell: bash
+      run: sh "${{ github.action_path }}/workspace-test.sh"
+
+    - name: Upload desktop screenshot
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: desktop-screenshot
+        path: docs/desktop.png
+        if-no-files-found: ignore
+
+    - name: Shut down VM
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        printf 'quit\n' | socat -t2 - UNIX-CONNECT:tests/mon.sock >/dev/null 2>&1 || true
+        [ -f tests/qemu.pid ] && kill "$(cat tests/qemu.pid)" 2>/dev/null || true
+
+    - name: Upload boot artifacts
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: boot-artifacts
+        path: |
+          tests/serial.log
+          tests/frames/
+          tests/*.ppm
+          docs/desktop.png
+        if-no-files-found: ignore

@@ -18,7 +18,7 @@ inputs:
   screenshot:
     description: >
       Path to the desktop screenshot from the gate. Attached as
-      Gershwin-<flavor>-desktop.png. Optional — skipped if the file is absent.
+      gershwin-on-<flavor>.png. Optional — skipped if the file is absent.
     required: false
     default: ''
   title:
@@ -59,7 +59,7 @@ runs:
         # screenshots publish in the tag, not committed to the README).
         shot="${{ github.workspace }}/${{ inputs.screenshot }}"
         if [ -n "${{ inputs.screenshot }}" ] && [ -f "$shot" ]; then
-          named="Gershwin-${{ inputs.flavor }}-desktop.png"
+          named="gershwin-on-${{ inputs.flavor }}.png"
           cp "$shot" "$named"
           assets+=("$named")
           echo "==> attaching screenshot as $named"

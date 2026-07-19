@@ -1,11 +1,9 @@
 name: continuous-nextbsd
 
 # Reference flavor for the monorepo: changes -> build -> gate -> publish.
-# The build is the only flavor-specific bit (inline, in a FreeBSD VM); the
-# tail (free-disk, publish-continuous) is the shared layer every flavor calls.
-# The screenshot gate is kept inline here for now — it is launchd/greeter
-# specific; it factors into a shared ./.github/actions/screenshot-gate once a
-# second flavor needs it (plan §7: lift the harness into gershwin-developer).
+# The build is the only flavor-specific bit (inline, in a FreeBSD VM). Everything
+# else is the shared layer every flavor calls: free-disk, screenshot-gate (boot
+# + greeter login + desktop-render check, init-agnostic), publish-continuous.
 
 on:
   push:
@@ -97,82 +95,14 @@ jobs:
           mkdir -p artifacts
           gh release download continuous-nextbsd --repo "$GITHUB_REPOSITORY" --pattern '*.iso' --dir artifacts
 
-      - name: Install qemu + ovmf + tooling
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf socat imagemagick tesseract-ocr
-
-      - name: Launch VM (serial + VGA + monitor)
-        run: |
-          set -e
-          ISO=$(ls artifacts/*.iso 2>/dev/null | head -1)
-          [ -n "$ISO" ] || { echo "no ISO found"; ls -laR artifacts; exit 1; }
-          mkdir -p tests docs
-          OVMF=/usr/share/ovmf/OVMF.fd
-          [ -f "$OVMF" ] || OVMF=/usr/share/OVMF/OVMF_CODE.fd
-          ACCEL="-accel tcg -cpu qemu64"
-          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm || true; fi
-          [ -r /dev/kvm ] && [ -w /dev/kvm ] && ACCEL="-accel kvm -cpu host"
-          echo "ISO=$ISO accel=$ACCEL ovmf=$OVMF"
-          nohup qemu-system-x86_64 \
-            -machine q35 -m 4G -smp 2 $ACCEL -bios "$OVMF" \
-            -cdrom "$ISO" -boot d \
-            -vga std \
-            -serial file:tests/serial.log \
-            -monitor unix:tests/mon.sock,server,nowait \
-            -nic user,model=e1000 \
-            -display none -no-reboot \
-            > tests/qemu.stdout 2>&1 &
-          echo $! > tests/qemu.pid
-          for i in $(seq 1 30); do [ -S tests/mon.sock ] && break; sleep 1; done
-          echo "qemu pid $(cat tests/qemu.pid); monitor: $(ls -l tests/mon.sock 2>/dev/null || echo MISSING)"
-
-      - name: boot-test (wait for greeter)
-        run: |
-          chmod +x targets/nextbsd/tests/boot-test.sh
-          ./targets/nextbsd/tests/boot-test.sh
-
-      - name: loginwindow-test (log in as admin)
-        continue-on-error: true
-        run: |
-          chmod +x targets/nextbsd/tests/loginwindow-test.sh
-          ./targets/nextbsd/tests/loginwindow-test.sh
-
-      # GATING: verifies the RESULT — that the session reached the desktop — and
-      # fails the job if it didn't. This is the step that makes "green" mean the
-      # desktop actually rendered, and it carries no continue-on-error.
-      - name: workspace-test (verify desktop renders + screenshot)
-        run: |
-          chmod +x targets/nextbsd/tests/workspace-test.sh
-          ./targets/nextbsd/tests/workspace-test.sh
-
-      # Screenshot goes to the release as an asset (see publish job), NOT a git
-      # commit — no binary churn in history (plan §8).
-      - name: Upload desktop screenshot
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+      # The whole boot -> greeter -> admin login -> desktop-render gate lives in
+      # the shared action. It observes the Gershwin greeter/desktop from outside
+      # the guest, so it is identical for every flavor (init-agnostic). A failure
+      # here fails the job and blocks publish (needs.test.result == 'success').
+      - uses: ./.github/actions/screenshot-gate
         with:
-          name: desktop-screenshot
-          path: docs/desktop.png
-          if-no-files-found: ignore
-
-      - name: Shut down VM
-        if: ${{ always() }}
-        run: |
-          printf 'quit\n' | socat -t2 - UNIX-CONNECT:tests/mon.sock >/dev/null 2>&1 || true
-          [ -f tests/qemu.pid ] && kill "$(cat tests/qemu.pid)" 2>/dev/null || true
-
-      - name: Upload boot artifacts
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: boot-artifacts
-          path: |
-            tests/serial.log
-            tests/frames/
-            tests/*.ppm
-            docs/desktop.png
-          if-no-files-found: ignore
+          iso-dir: artifacts
+          arch: amd64
 
   publish:
     name: publish continuous-nextbsd
