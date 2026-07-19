@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  D-Bus system message bus. GNUstep/Gershwin components (and much of the X11
+  stack pulled in by Gershwin's Bootstrap.sh) talk to the system bus at
+  /var/run/dbus/system_bus_socket. FreeBSD ships D-Bus with an rc.d(8) script,
+  but launchd is PID 1 on NextBSD and never reads rc.d, so run the daemon
+  directly as a LaunchDaemon instead.
+
+  Flags (see ProgramArguments): "system" starts the system bus (reads
+  /usr/local/etc/dbus-1/system.conf); "nofork" keeps the daemon in the
+  foreground so launchd tracks the real dbus-daemon PID (otherwise dbus forks,
+  the parent exits, and KeepAlive respawn-loops on the held socket); "nopidfile"
+  because launchd owns process supervision.
+
+  The build seeds the machine-id (dbus-uuidgen ensure) and creates /var/run/dbus;
+  the live overlay makes /var writable so the socket is created on first boot.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.freedesktop.dbus-system</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/dbus-daemon</string>
+        <string>--system</string>
+        <string>--nofork</string>
+        <string>--nopidfile</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/dbus-system.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/dbus-system.log</string>
+</dict>
+</plist>
