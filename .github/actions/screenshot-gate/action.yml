@@ -1,8 +1,10 @@
 name: screenshot-gate
 description: >
   Boot a flavor's ISO in QEMU+OVMF, wait for the Gershwin greeter, log in as
-  admin, and FAIL the job unless the GNUstep desktop actually renders — then
-  capture it as docs/desktop.png. Init-agnostic on purpose: it observes the
+  admin, and FAIL the job unless the GNUstep desktop actually renders — proven
+  by OCR finding BOTH the "System Disk" icon and the "Workspace" menu in one
+  frame — then capture it as docs/desktop.png. Init-agnostic on purpose: it
+  observes the
   shared Gershwin greeter/desktop from OUTSIDE the guest through the QEMU
   monitor, so the same gate works for every flavor regardless of whether
   launchd, systemd, rc.d or openrc started the session.
