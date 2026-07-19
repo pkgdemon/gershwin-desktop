@@ -1,0 +1,84 @@
+name: publish-continuous
+description: >
+  Publish a flavor's ISO to its single rolling `continuous-<flavor>` release.
+  Deletes the previous release AND its tag first (`--cleanup-tag`) so the tag
+  can never accumulate stale builds — this is what fixes the uploadtool "tag
+  leak". Attaches the ISO, its sha256, and the gate's desktop screenshot.
+
+inputs:
+  flavor:
+    description: Flavor token used in the tag and screenshot asset name (e.g. nextbsd).
+    required: true
+  tag:
+    description: Rolling release tag to publish to (e.g. continuous-nextbsd).
+    required: true
+  assets-dir:
+    description: Directory holding the built *.iso and *.iso.sha256 assets.
+    required: true
+  screenshot:
+    description: >
+      Path to the desktop screenshot from the gate. Attached as
+      Gershwin-<flavor>-desktop.png. Optional — skipped if the file is absent.
+    required: false
+    default: ''
+  title:
+    description: Release title.
+    required: false
+    default: Continuous build
+  token:
+    description: Token for gh (pass ${{ secrets.GITHUB_TOKEN }}).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Publish rolling continuous release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+
+        cd "${{ inputs.assets-dir }}"
+        isos=(*.iso)
+        [ ${#isos[@]} -gt 0 ] || { echo "::error::no *.iso in ${{ inputs.assets-dir }}"; ls -laR .; exit 1; }
+
+        # sha256 sidecars: build.sh already writes them, but regenerate any that
+        # are missing so the release always ships a checksum next to each ISO.
+        for iso in "${isos[@]}"; do
+          if [ ! -f "$iso.sha256" ]; then
+            echo "==> sha256 (missing sidecar) for $iso"
+            sha256sum "$iso" | awk '{print $1}' > "$iso.sha256"
+          fi
+        done
+
+        assets=(*.iso *.iso.sha256)
+
+        # Attach the gate's screenshot as a versioned release asset (plan §8:
+        # screenshots publish in the tag, not committed to the README).
+        shot="${{ github.workspace }}/${{ inputs.screenshot }}"
+        if [ -n "${{ inputs.screenshot }}" ] && [ -f "$shot" ]; then
+          named="Gershwin-${{ inputs.flavor }}-desktop.png"
+          cp "$shot" "$named"
+          assets+=("$named")
+          echo "==> attaching screenshot as $named"
+        else
+          echo "==> no screenshot to attach (${{ inputs.screenshot }})"
+        fi
+
+        echo "==> assets:"; ls -lh "${assets[@]}"
+
+        TAG='${{ inputs.tag }}'
+        NOTES="GitHub Actions build log: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+        # Delete the old release AND tag, then recreate — keeps the rolling tag
+        # holding exactly one current build (no accumulation).
+        gh release delete "$TAG" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+        gh release create "$TAG" \
+          --repo "$GITHUB_REPOSITORY" \
+          --target "$GITHUB_SHA" \
+          --title "${{ inputs.title }}" \
+          --notes "$NOTES" \
+          --prerelease \
+          "${assets[@]}"
