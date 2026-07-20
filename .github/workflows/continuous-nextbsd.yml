@@ -1,0 +1,135 @@
+name: continuous-nextbsd
+
+# Reference flavor for the monorepo: changes -> build -> gate -> publish.
+# The build is the only flavor-specific bit (inline, in a FreeBSD VM). Everything
+# else is the shared layer every flavor calls: free-disk, screenshot-gate (boot
+# + greeter login + desktop-render check, init-agnostic), publish-continuous.
+
+on:
+  push:
+    branches: [main]
+    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/continuous-nextbsd.yml']
+  pull_request:
+    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/continuous-nextbsd.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # Skip the ~13-min build for a tests-only change and boot the already-published
+  # continuous ISO instead.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.f.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            code:
+              - 'targets/nextbsd/build.sh'
+              - 'targets/nextbsd/pkglist.txt'
+              - 'targets/nextbsd/overlays/**'
+
+  build:
+    name: build (nextbsd amd64)
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/free-disk
+
+      - name: Build ISO inside FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "15.1"
+          usesh: true
+          sync: rsync
+          copyback: true
+          cpu: 4
+          mem: 8192
+          prepare: |
+            pkg install -y git
+          run: |
+            set -e
+            export TARGET_ARCH=amd64
+            export GERSHWIN_REF=main
+            /bin/sh ./targets/nextbsd/build.sh
+            ls -lh /usr/local/gon-build/iso/
+            mkdir -p out
+            cp /usr/local/gon-build/iso/*.iso* out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gershwin-nextbsd-amd64
+          path: out
+          if-no-files-found: error
+
+  test:
+    name: boot + login + screenshot (nextbsd amd64)
+    needs: [changes, build]
+    if: ${{ always() && !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download fresh build artifact
+        if: ${{ needs.build.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: gershwin-nextbsd-amd64
+          path: artifacts
+
+      - name: Download published continuous ISO (tests-only change)
+        if: ${{ needs.build.result == 'skipped' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts
+          gh release download continuous-nextbsd --repo "$GITHUB_REPOSITORY" --pattern '*.iso' --dir artifacts
+
+      # The whole boot -> greeter -> admin login -> desktop-render gate lives in
+      # the shared action. It observes the Gershwin greeter/desktop from outside
+      # the guest, so it is identical for every flavor (init-agnostic). A failure
+      # here fails the job and blocks publish (needs.test.result == 'success').
+      - uses: ./.github/actions/screenshot-gate
+        with:
+          flavor: nextbsd
+          iso-dir: artifacts
+          arch: amd64
+
+  publish:
+    name: publish continuous-nextbsd
+    # Public release is gated on boot + login + screenshot all passing.
+    needs: [build, test]
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ISO
+        uses: actions/download-artifact@v4
+        with:
+          name: gershwin-nextbsd-amd64
+          path: dist
+
+      - name: Download screenshot
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-screenshot
+          path: screenshot
+
+      - uses: ./.github/actions/publish-continuous
+        with:
+          tag: continuous-nextbsd
+          assets-dir: dist
+          screenshot: screenshot/gershwin-on-nextbsd.png
+          token: ${{ secrets.GITHUB_TOKEN }}
