@@ -18,6 +18,10 @@
 # rootfs during the chroot build; listed here to match nextbsd's former set).
 git
 
+# sudo — so a user on the booted live system can run administrative commands
+# (FreeBSD base ships no sudo).
+sudo
+
 # X11 (XLibre) — the SAME minimal set nextbsd-redux/nextbsd used to bundle
 # (nextbsd commit 1883bd8/a4d344a, dropped in 3564c03 when its base went lean).
 # A minimal X server + laptop/VM input+video drivers so the desktop can start;
@@ -31,3 +35,10 @@ xlibre-xf86-input-synaptics
 xlibre-xf86-input-vmmouse
 xlibre-xf86-video-scfb
 xlibre-xf86-video-vesa
+
+# Mesa DRI drivers (swrast + hardware, e.g. i915/iris) — the GL implementation
+# behind /usr/local/lib/dri/*_dri.so. Gershwin's Bootstrap.sh pulls mesa-libs
+# (libGL/libEGL/libgbm) but mesa-libs does NOT depend on mesa-dri, so without
+# this the X server logs "AIGLX error: dlopen of .../swrast_dri.so failed" and
+# "GLX: no usable GL providers", leaving the desktop with no working OpenGL.
+mesa-dri
