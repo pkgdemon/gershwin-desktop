@@ -22,7 +22,7 @@ SOCK=tests/mon.sock
 DESKTOP_DEADLINE=120
 ABOUT_DEADLINE=25
 CMD="${GATE_ABOUT_CMD:-uitest about}"                    # run via the Run… dialog
-MODS="${GATE_CMD_MODS:-meta_l alt meta_r ctrl}"          # GNUstep Command modifier — probed
+MODS="${GATE_CMD_MODS:-meta_l alt altgr meta_r ctrl}"    # GNUstep Command modifier — probed
 FLAVOR="${GATE_FLAVOR:-desktop}"                         # which flavor we're testing (from the caller workflow)
 SHOT="screenshot/gershwin-on-${FLAVOR}.png"              # the ONE published screenshot
 
@@ -85,23 +85,27 @@ fi
 echo "[desktop-test] 1/5 PASS: desktop is up"
 
 # --- 2. discover the Command modifier via the Run… dialog ---------------------
-echo "[desktop-test] 2/5 probing Command modifier (Cmd+R must open the Run… dialog)"
-MOD=""
+# Run… uses NSCommandKeyMask|NSShiftKeyMask + "R" (confirmed in Workspace.m), so
+# the chord is Cmd+SHIFT+R. Probe each candidate Command modifier WITH shift.
+echo "[desktop-test] 2/5 probing Command modifier (Cmd+Shift+R must open the Run… dialog)"
+MOD=""; RUN_KEYS=""
 for cand in $MODS; do
     key esc; key esc
-    mon "sendkey ${cand}-r"; sleep 1.2
+    combo="${cand}-shift-r"
+    mon "sendkey $combo"; sleep 1.2
     f="tests/run-${cand}.ppm"; dump "$f"
     t=$(ocr "$f")
     if has 'command to execute|Type the command' "$t"; then
-        MOD="$cand"; echo "[desktop-test]   Command modifier = '$cand' (Run… dialog opened)"; key esc; break
+        MOD="$cand"; RUN_KEYS="$combo"
+        echo "[desktop-test]   Command modifier = '$cand' — '$combo' opened the Run… dialog"; key esc; break
     fi
-    echo "[desktop-test]   '$cand' did not open Run…"
+    echo "[desktop-test]   '$combo' did not open Run… (OCR: $(printf '%s' "$t" | tr '\n' ' ' | grep -oiE 'run|cancel|command' | tr '\n' ',' | sed 's/,$//'))"
 done
 if [ -z "$MOD" ]; then
     save_shot ""
-    echo "[desktop-test] FAIL(2): no sendkey modifier opened the Run… dialog (tried: $MODS)."
-    echo "[desktop-test]   -> the QEMU keyname for GNUstep's Command modifier is wrong, or Run…'s Cmd+R is remapped."
-    echo "[desktop-test]   -> set GATE_CMD_MODS to the correct sendkey modifier and re-run."
+    echo "[desktop-test] FAIL(2): no modifier opened the Run… dialog with Cmd+Shift+R (tried: $MODS)."
+    echo "[desktop-test]   -> the QEMU keyname for GNUstep's Command modifier is wrong (see run-*.ppm in boot-artifacts),"
+    echo "[desktop-test]      or the Run… detection missed the dialog. Set GATE_CMD_MODS and re-run."
     exit 1
 fi
 
@@ -110,9 +114,9 @@ echo "[desktop-test] 3/5 closing open windows (Cmd+W x5)"
 n=0; while [ "$n" -lt 5 ]; do mon "sendkey ${MOD}-w"; sleep 0.4; n=$((n + 1)); done
 
 # --- 4. open About This Computer via Run… + uitest ----------------------------
-echo "[desktop-test] 4/5 opening About This Computer (Cmd+R -> '$CMD')"
+echo "[desktop-test] 4/5 opening About This Computer ($RUN_KEYS -> '$CMD')"
 key esc
-mon "sendkey ${MOD}-r"; sleep 1
+mon "sendkey $RUN_KEYS"; sleep 1
 type_str "$CMD"
 key ret
 
