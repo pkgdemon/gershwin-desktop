@@ -1,13 +1,14 @@
 name: screenshot-gate
 description: >
-  Boot a flavor's ISO in QEMU+OVMF, wait for the Gershwin greeter, log in as
-  admin, and FAIL the job unless the GNUstep desktop actually renders — proven
-  by OCR finding BOTH the "System Disk" icon and the "Workspace" menu in one
-  frame — then capture it as docs/desktop.png. Init-agnostic on purpose: it
-  observes the
-  shared Gershwin greeter/desktop from OUTSIDE the guest through the QEMU
-  monitor, so the same gate works for every flavor regardless of whether
-  launchd, systemd, rc.d or openrc started the session.
+  Boot a flavor's ISO in QEMU+OVMF, log in as admin, and gate the publish on an
+  interactive desktop check — all driven from OUTSIDE the guest over the QEMU
+  monitor (screendump + sendkey; no mouse, nothing in-guest). Each step is a hard
+  gate: greeter appears -> desktop OCRs "System Disk" AND "Workspace" -> close
+  windows (Cmd+W) -> open About This Computer (Cmd+R, run "uitest about") -> OCR
+  "About This Computer". The ONLY published screenshot (docs/desktop.png) is the
+  About-This-Computer frame. Init-agnostic on purpose: it observes the shared
+  Gershwin greeter/desktop, so the same gate works for every flavor regardless of
+  whether launchd, systemd, rc.d or openrc started the session.
 
 inputs:
   iso-dir:
@@ -64,18 +65,19 @@ runs:
 
     # INPUT step: injects the admin login keystrokes into the greeter. It only
     # *performs* the login (best-effort, always exits 0) — the judgement is
-    # workspace-test below, so this can never spuriously fail the gate.
+    # desktop-test below, so this can never spuriously fail the gate.
     - name: loginwindow-test (log in as admin)
       shell: bash
       run: sh "${{ github.action_path }}/loginwindow-test.sh"
 
-    # GATE (login + screenshot): asserts the RESULT — that the post-login desktop
-    # actually rendered. A rendered desktop is only reachable if login succeeded,
-    # so this one hard check covers BOTH login working and the screenshot showing
-    # a real desktop. Non-zero exit here fails the action → fails the job.
-    - name: workspace-test (verify desktop renders + screenshot)
+    # GATE: the interactive desktop sequence — desktop renders (System Disk +
+    # Workspace) → close windows → open About This Computer (Cmd+R, "uitest
+    # about") → verify it, and capture that frame as the published screenshot.
+    # Every step is a hard gate; any non-zero exit fails the action → the job →
+    # blocks publish (needs.test.result == 'success').
+    - name: desktop-test (System Disk + Workspace → About This Computer)
       shell: bash
-      run: sh "${{ github.action_path }}/workspace-test.sh"
+      run: sh "${{ github.action_path }}/desktop-test.sh"
 
     - name: Upload desktop screenshot
       if: ${{ always() }}
