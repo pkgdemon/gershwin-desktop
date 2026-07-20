@@ -28,6 +28,10 @@ SHOT="screenshot/gershwin-on-${FLAVOR}.png"              # the ONE published scr
 
 mon()  { printf '%s\n' "$*" | socat -t2 - "UNIX-CONNECT:$SOCK" >/dev/null 2>&1 || true; }
 key()  { mon "sendkey $1"; sleep 0.25; }
+park() {   # shove the (relative PS/2) pointer hard into the bottom-right corner so
+    # it doesn't sit over the centred About window in the published screenshot.
+    mon "mouse_move 20000 20000"; sleep 0.4;
+}
 dump() { mon "screendump $1"; sleep 0.6; }
 ocr()  {   # OCR the whole frame (reads the menu bar: "Workspace", etc.)
     command -v tesseract >/dev/null 2>&1 || return 1
@@ -119,6 +123,7 @@ key esc
 mon "sendkey $RUN_KEYS"; sleep 1
 type_str "$CMD"
 key ret
+park   # get the mouse pointer out of the About window before we capture the frame
 
 # --- 5. About This Computer is up ---------------------------------------------
 echo "[desktop-test] 5/5 verifying 'About This Computer' (<= ${ABOUT_DEADLINE}s)"
