@@ -40,13 +40,16 @@ ocr()  {   # OCR the whole frame (reads the menu bar: "Workspace", etc.)
 }
 ocr_corner() {   # OCR just the top-right corner where the "System Disk" volume
     # icon lives. Its ~11px label is invisible to a full-frame OCR pass but reads
-    # cleanly cropped, greyscaled and upscaled hard. NOTE: use tesseract's default
-    # psm 3 (auto) — the sparse-text modes (psm 11/12) mangle this label; verified
-    # against a real captured frame.
+    # cleanly cropped, greyscaled and upscaled hard. CRITICAL: the crop must start
+    # BELOW the menu bar (+0+28) — if it includes the top row, tesseract locks onto
+    # the big "CPU/RAM/clock" menu-bar text and drops the tiny label entirely. With
+    # the menu bar excluded, --psm 6 (single uniform block) reads "System Disk"
+    # reliably; the default psm 3 and the sparse modes (psm 11/12) do not. Verified
+    # against real captured frames.
     command -v tesseract >/dev/null 2>&1 || return 1
-    magick "$1" -gravity NorthEast -crop 42%x24%+0+0 +repage -colorspace Gray -resize 400% "$1.ne.png" 2>/dev/null \
-      || convert "$1" -gravity NorthEast -crop 42%x24%+0+0 +repage -colorspace Gray -resize 400% "$1.ne.png" 2>/dev/null || return 1
-    tesseract "$1.ne.png" - 2>/dev/null | tr -d '\r'
+    magick "$1" -gravity NorthEast -crop 42%x14%+0+28 +repage -colorspace Gray -resize 400% "$1.ne.png" 2>/dev/null \
+      || convert "$1" -gravity NorthEast -crop 42%x14%+0+28 +repage -colorspace Gray -resize 400% "$1.ne.png" 2>/dev/null || return 1
+    tesseract "$1.ne.png" - --psm 6 2>/dev/null | tr -d '\r'
 }
 has() { printf '%s' "$2" | grep -qiE "$1"; }             # has REGEX TEXT
 type_str() {
