@@ -8,7 +8,7 @@
 #   2. discover Command  — probe sendkey modifiers until Cmd+R opens the Run…
 #                          dialog ("Type the command to execute:")
 #   3. close everything  — Cmd+W a few times
-#   4. open About        — Cmd+R, type "uitest about", Enter
+#   4. open About        — Cmd+R, type "uitest aboutcomputer", Enter
 #   5. About is up       — OCR must find "About This Computer"
 #   6. capture           — screendump THIS frame -> screenshot/gershwin-on-<flavor>.png,
 #                          the ONLY published screenshot (About This Computer + desktop)
@@ -21,7 +21,7 @@ set -u
 SOCK=tests/mon.sock
 DESKTOP_DEADLINE=120
 ABOUT_DEADLINE=25
-CMD="${GATE_ABOUT_CMD:-uitest about}"                    # run via the Run… dialog
+CMD="${GATE_ABOUT_CMD:-uitest aboutcomputer}"            # run via the Run… dialog
 MODS="${GATE_CMD_MODS:-meta_l alt altgr meta_r ctrl}"    # GNUstep Command modifier — probed
 FLAVOR="${GATE_FLAVOR:-desktop}"                         # which flavor we're testing (from the caller workflow)
 SHOT="screenshot/gershwin-on-${FLAVOR}.png"              # the ONE published screenshot

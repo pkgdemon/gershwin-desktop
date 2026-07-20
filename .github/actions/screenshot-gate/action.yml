@@ -4,7 +4,7 @@ description: >
   interactive desktop check — all driven from OUTSIDE the guest over the QEMU
   monitor (screendump + sendkey; no mouse, nothing in-guest). Each step is a hard
   gate: greeter appears -> desktop OCRs "System Disk" AND "Workspace" -> close
-  windows (Cmd+W) -> open About This Computer (Cmd+R, run "uitest about") -> OCR
+  windows (Cmd+W) -> open About This Computer (Cmd+R, run "uitest aboutcomputer") -> OCR
   "About This Computer". The ONLY published screenshot (named gershwin-on-<flavor>.png
   from the caller's flavor) is the About-This-Computer frame. Init-agnostic on
   purpose: it observes the shared
