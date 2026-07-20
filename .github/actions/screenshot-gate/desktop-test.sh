@@ -29,10 +29,20 @@ SHOT="screenshot/gershwin-on-${FLAVOR}.png"              # the ONE published scr
 mon()  { printf '%s\n' "$*" | socat -t2 - "UNIX-CONNECT:$SOCK" >/dev/null 2>&1 || true; }
 key()  { mon "sendkey $1"; sleep 0.25; }
 dump() { mon "screendump $1"; sleep 0.6; }
-ocr()  {
+ocr()  {   # OCR the whole frame (reads the menu bar: "Workspace", etc.)
     command -v tesseract >/dev/null 2>&1 || return 1
     magick "$1" -resize 200% "$1.png" 2>/dev/null || convert "$1" -resize 200% "$1.png" 2>/dev/null || return 1
     tesseract "$1.png" - 2>/dev/null | tr -d '\r'
+}
+ocr_corner() {   # OCR just the top-right corner where the "System Disk" volume
+    # icon lives. Its ~11px label is invisible to a full-frame OCR pass but reads
+    # cleanly cropped, greyscaled and upscaled hard. NOTE: use tesseract's default
+    # psm 3 (auto) — the sparse-text modes (psm 11/12) mangle this label; verified
+    # against a real captured frame.
+    command -v tesseract >/dev/null 2>&1 || return 1
+    magick "$1" -gravity NorthEast -crop 42%x24%+0+0 +repage -colorspace Gray -resize 400% "$1.ne.png" 2>/dev/null \
+      || convert "$1" -gravity NorthEast -crop 42%x24%+0+0 +repage -colorspace Gray -resize 400% "$1.ne.png" 2>/dev/null || return 1
+    tesseract "$1.ne.png" - 2>/dev/null | tr -d '\r'
 }
 has() { printf '%s' "$2" | grep -qiE "$1"; }             # has REGEX TEXT
 type_str() {
@@ -52,21 +62,24 @@ mkdir -p tests screenshot
 
 # --- 1. desktop rendered: "System Disk" AND "Workspace" -----------------------
 echo "[desktop-test] 1/5 waiting for the desktop — 'System Disk' AND 'Workspace' (<= ${DESKTOP_DEADLINE}s)"
-END=$(( $(date +%s) + DESKTOP_DEADLINE )); i=0; up=0; text=""; f=""
+END=$(( $(date +%s) + DESKTOP_DEADLINE )); i=0; up=0; text=""; corner=""; f=""
 while [ "$(date +%s)" -lt "$END" ]; do
     i=$((i + 1)); f="tests/desk-$(printf '%03d' "$i").ppm"; dump "$f"
     [ -s "$f" ] || { sleep 3; continue; }
-    text=$(ocr "$f"); d=0; w=0
-    has 'System[[:space:]]*Disk' "$text" && d=1
-    has 'Workspace'              "$text" && w=1
+    text=$(ocr "$f"); corner=$(ocr_corner "$f"); d=0; w=0
+    # "Workspace" is menu-bar text -> full-frame OCR; "System Disk" is the small
+    # top-right icon label -> corner OCR (full frame can't read it).
+    { has 'System[[:space:]]*Disk' "$corner" || has 'System[[:space:]]*Disk' "$text"; } && d=1
+    has 'Workspace' "$text" && w=1
     echo "[desktop-test]   frame $i: System Disk=$d Workspace=$w"
     { [ "$d" -eq 1 ] && [ "$w" -eq 1 ]; } && { up=1; break; }
     sleep 3
 done
 if [ "$up" -ne 1 ]; then
     save_shot "$f"
-    echo "[desktop-test] FAIL(1): desktop landmarks not both present within ${DESKTOP_DEADLINE}s (login likely never reached the desktop)."
-    echo "[desktop-test]   last OCR text:"; printf '%s\n' "${text:-<none>}" | sed 's/^/[ocr] /'
+    echo "[desktop-test] FAIL(1): 'System Disk' and 'Workspace' not both OCR-detected within ${DESKTOP_DEADLINE}s."
+    echo "[desktop-test]   full-frame OCR:"; printf '%s\n' "${text:-<none>}" | sed 's/^/[ocr] /'
+    echo "[desktop-test]   corner OCR:";     printf '%s\n' "${corner:-<none>}" | sed 's/^/[ocr-ne] /'
     exit 1
 fi
 echo "[desktop-test] 1/5 PASS: desktop is up"
