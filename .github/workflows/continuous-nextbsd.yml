@@ -63,7 +63,7 @@ jobs:
             /bin/sh ./targets/nextbsd/build.sh
             ls -lh /usr/local/gon-build/iso/
             mkdir -p out
-            cp /usr/local/gon-build/iso/*.iso* out/
+            cp /usr/local/gon-build/iso/*.iso out/
 
       - uses: actions/upload-artifact@v4
         with:

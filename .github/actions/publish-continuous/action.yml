@@ -1,22 +1,22 @@
 name: publish-continuous
 description: >
-  Publish a flavor's ISO to its single rolling `continuous-<flavor>` release.
-  Deletes the previous release AND its tag first (`--cleanup-tag`) so the tag
-  can never accumulate stale builds — this is what fixes the uploadtool "tag
-  leak". Attaches the ISO, its sha256, and the gate's desktop screenshot.
+  Publish a flavor's ISO to its single rolling `continuous-<flavor>` release,
+  PRESERVING the tag. Uploads the new ISO first, replaces the screenshot, then
+  deletes the previous ISO(s) — so the release is never left without a valid,
+  downloadable image. No sha256 sidecars: GitHub shows each asset's digest.
 
 inputs:
   tag:
     description: Rolling release tag to publish to (e.g. continuous-nextbsd).
     required: true
   assets-dir:
-    description: Directory holding the built *.iso and *.iso.sha256 assets.
+    description: Directory holding the built *.iso asset(s).
     required: true
   screenshot:
     description: >
       Path to the gate's screenshot, already named gershwin-on-<flavor>.png by
-      the caller's flavor. Attached under that filename. Optional — skipped if
-      the file is absent.
+      the caller's flavor. Attached under that stable filename so the release
+      body can embed it inline. Optional — skipped if the file is absent.
     required: false
     default: ''
   title:
@@ -30,7 +30,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Publish rolling continuous release
+    - name: Publish rolling continuous release (preserve tag, rotate ISO)
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -38,46 +38,63 @@ runs:
         set -euo pipefail
         shopt -s nullglob
 
+        TAG='${{ inputs.tag }}'
         cd "${{ inputs.assets-dir }}"
+
         isos=(*.iso)
         [ ${#isos[@]} -gt 0 ] || { echo "::error::no *.iso in ${{ inputs.assets-dir }}"; ls -laR .; exit 1; }
 
-        # sha256 sidecars: build.sh already writes them, but regenerate any that
-        # are missing so the release always ships a checksum next to each ISO.
-        for iso in "${isos[@]}"; do
-          if [ ! -f "$iso.sha256" ]; then
-            echo "==> sha256 (missing sidecar) for $iso"
-            sha256sum "$iso" | awk '{print $1}' > "$iso.sha256"
-          fi
-        done
-
-        assets=(*.iso *.iso.sha256)
-
-        # Attach the gate's screenshot as a versioned release asset (plan §8:
-        # screenshots publish in the tag, not committed to the README). The gate
-        # already named it gershwin-on-<flavor>.png from the caller's flavor, so
-        # attach it under its own basename — no renaming here.
+        # The stable-named hero screenshot (gershwin-on-<flavor>.png), embedded
+        # inline in the release body. Copy it alongside the ISO if present.
         shot="${{ github.workspace }}/${{ inputs.screenshot }}"
+        shot_name=""
         if [ -n "${{ inputs.screenshot }}" ] && [ -f "$shot" ]; then
           cp "$shot" .
-          assets+=("$(basename "$shot")")
-          echo "==> attaching screenshot $(basename "$shot")"
-        else
-          echo "==> no screenshot to attach (${{ inputs.screenshot }})"
+          shot_name="$(basename "$shot")"
         fi
 
-        echo "==> assets:"; ls -lh "${assets[@]}"
+        # 1. Ensure the rolling release + tag exist. Create ONCE (never
+        #    --cleanup-tag) so the tag is preserved across every later build.
+        if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          echo "==> creating rolling release $TAG"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "${{ inputs.title }}" \
+            --notes "initializing…" \
+            --prerelease
+        fi
 
-        TAG='${{ inputs.tag }}'
-        NOTES="GitHub Actions build log: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        # 2. Upload the NEW ISO first (and replace the screenshot). The old ISO
+        #    stays downloadable until step 3, so there is never a window without a
+        #    valid image. --clobber covers the stable PNG and a same-second rerun.
+        upload=("${isos[@]}")
+        [ -n "$shot_name" ] && upload+=("$shot_name")
+        echo "==> uploading: ${upload[*]}"
+        gh release upload "$TAG" "${upload[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
-        # Delete the old release AND tag, then recreate — keeps the rolling tag
-        # holding exactly one current build (no accumulation).
-        gh release delete "$TAG" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
-        gh release create "$TAG" \
-          --repo "$GITHUB_REPOSITORY" \
-          --target "$GITHUB_SHA" \
-          --title "${{ inputs.title }}" \
-          --notes "$NOTES" \
-          --prerelease \
-          "${assets[@]}"
+        # 3. Prune the previous build: delete any release asset that is NOT one we
+        #    just uploaded — old ISO(s) and any legacy *.sha256 sidecars. The
+        #    screenshot keeps its stable name, so it is in `keep` and survives.
+        keep=" ${upload[*]} "
+        gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
+        | while IFS= read -r a; do
+            case "$keep" in *" $a "*) continue ;; esac
+            echo "==> deleting stale asset $a"
+            gh release delete-asset "$TAG" "$a" --repo "$GITHUB_REPOSITORY" --yes
+          done
+
+        # 4. Refresh the body: inline screenshot + provenance (ISO name, commit,
+        #    build log). The tag stays pinned to its first commit; provenance here.
+        iso_name="${isos[0]}"
+        run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        {
+          if [ -n "$shot_name" ]; then
+            printf '![%s](%s/%s/releases/download/%s/%s)\n\n' \
+              "$TAG" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$TAG" "$shot_name"
+          fi
+          printf '**ISO:** `%s`  \n' "$iso_name"
+          printf '**Commit:** `%s`  \n' "$GITHUB_SHA"
+          printf '**Build log:** %s\n' "$run_url"
+        } > notes.md
+        gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md

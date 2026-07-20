@@ -27,8 +27,19 @@ ROOTFS=$WORK/rootfs
 OUT=$WORK/iso
 GERSHWIN_REPO=${GERSHWIN_REPO:-https://github.com/gershwin-desktop/gershwin-developer.git}
 GERSHWIN_REF=${GERSHWIN_REF:-main}
-IMG_DATE=$(date -u +%Y%m%d-%H%M%S)
-ISO_NAME="Gershwin-NextBSD-${ARCH}-${IMG_DATE}.iso"
+IMG_DATE=$(date -u +%Y%m%d%H%M%S)
+# Canonical artifact name, shared by EVERY Gershwin flavor (see the naming
+# convention in pkgdemon.github.io):
+#   gershwin-on-<flavor>-<UTC YYYYMMDDhhmmss>-<arch>.iso
+# `arch` is the release token (x86_64 / aarch64) — NOT the FreeBSD $ARCH
+# (amd64), which stays as-is for the pkg ABI, repo URLs and mkisoimages.sh below.
+FLAVOR=nextbsd
+case "$ARCH" in
+  amd64|x86_64)  ARCH_LABEL=x86_64 ;;
+  arm64|aarch64) ARCH_LABEL=aarch64 ;;
+  *)             ARCH_LABEL="$ARCH" ;;
+esac
+ISO_NAME="gershwin-on-${FLAVOR}-${IMG_DATE}-${ARCH_LABEL}.iso"
 
 # pkg uses `aarch64` for 64-bit ARM; release tags / artifact names use `arm64`.
 case "$ARCH" in arm64|aarch64) ABIARCH=aarch64 ;; *) ABIARCH="$ARCH" ;; esac
@@ -468,6 +479,5 @@ MKISO=$(find "$SRC" -path "*/release/${ARCH}/mkisoimages.sh" 2>/dev/null | head 
 
 echo "==> mkisoimages.sh: bootable cd9660 (BIOS + UEFI)"
 sh "$MKISO" -b "$LABEL" "$OUT/$ISO_NAME" "$ISOROOT"
-( cd "$OUT" && sha256 -q "$ISO_NAME" > "$ISO_NAME.sha256" 2>/dev/null || sha256sum "$ISO_NAME" | awk '{print $1}' > "$ISO_NAME.sha256" )
-ls -lh "$OUT/$ISO_NAME" "$OUT/$ISO_NAME.sha256"
+ls -lh "$OUT/$ISO_NAME"
 echo "==> DONE: $ISO_NAME"
