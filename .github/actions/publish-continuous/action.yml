@@ -6,9 +6,6 @@ description: >
   leak". Attaches the ISO, its sha256, and the gate's desktop screenshot.
 
 inputs:
-  flavor:
-    description: Flavor token used in the tag and screenshot asset name (e.g. nextbsd).
-    required: true
   tag:
     description: Rolling release tag to publish to (e.g. continuous-nextbsd).
     required: true
@@ -17,8 +14,9 @@ inputs:
     required: true
   screenshot:
     description: >
-      Path to the desktop screenshot from the gate. Attached as
-      gershwin-on-<flavor>.png. Optional — skipped if the file is absent.
+      Path to the gate's screenshot, already named gershwin-on-<flavor>.png by
+      the caller's flavor. Attached under that filename. Optional — skipped if
+      the file is absent.
     required: false
     default: ''
   title:
@@ -56,13 +54,14 @@ runs:
         assets=(*.iso *.iso.sha256)
 
         # Attach the gate's screenshot as a versioned release asset (plan §8:
-        # screenshots publish in the tag, not committed to the README).
+        # screenshots publish in the tag, not committed to the README). The gate
+        # already named it gershwin-on-<flavor>.png from the caller's flavor, so
+        # attach it under its own basename — no renaming here.
         shot="${{ github.workspace }}/${{ inputs.screenshot }}"
         if [ -n "${{ inputs.screenshot }}" ] && [ -f "$shot" ]; then
-          named="gershwin-on-${{ inputs.flavor }}.png"
-          cp "$shot" "$named"
-          assets+=("$named")
-          echo "==> attaching screenshot as $named"
+          cp "$shot" .
+          assets+=("$(basename "$shot")")
+          echo "==> attaching screenshot $(basename "$shot")"
         else
           echo "==> no screenshot to attach (${{ inputs.screenshot }})"
         fi

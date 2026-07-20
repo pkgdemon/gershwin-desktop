@@ -10,8 +10,8 @@
 #   3. close everything  — Cmd+W a few times
 #   4. open About        — Cmd+R, type "uitest about", Enter
 #   5. About is up       — OCR must find "About This Computer"
-#   6. capture           — screendump THIS frame -> docs/desktop.png, the ONLY
-#                          published screenshot (About This Computer + desktop)
+#   6. capture           — screendump THIS frame -> screenshot/gershwin-on-<flavor>.png,
+#                          the ONLY published screenshot (About This Computer + desktop)
 #
 # The Command modifier and the About-opening command are the two things that can
 # only be confirmed on a real boot, so step 2 auto-probes the modifier and each
@@ -23,6 +23,8 @@ DESKTOP_DEADLINE=120
 ABOUT_DEADLINE=25
 CMD="${GATE_ABOUT_CMD:-uitest about}"                    # run via the Run… dialog
 MODS="${GATE_CMD_MODS:-meta_l alt meta_r ctrl}"          # GNUstep Command modifier — probed
+FLAVOR="${GATE_FLAVOR:-desktop}"                         # which flavor we're testing (from the caller workflow)
+SHOT="screenshot/gershwin-on-${FLAVOR}.png"              # the ONE published screenshot
 
 mon()  { printf '%s\n' "$*" | socat -t2 - "UNIX-CONNECT:$SOCK" >/dev/null 2>&1 || true; }
 key()  { mon "sendkey $1"; sleep 0.25; }
@@ -40,13 +42,13 @@ type_str() {
         case "$ch" in ' ') key spc ;; *) key "$ch" ;; esac
     done
 }
-save_shot() {   # copy $1 (or a fresh screendump) to the published docs/desktop.png
+save_shot() {   # copy $1 (or a fresh screendump) to the published $SHOT
     if [ -n "${1:-}" ] && [ -s "${1:-}" ]; then cp "$1" tests/desktop.ppm 2>/dev/null || true
     else mon "screendump tests/desktop.ppm"; sleep 1; fi
-    magick tests/desktop.ppm docs/desktop.png 2>/dev/null || convert tests/desktop.ppm docs/desktop.png 2>/dev/null || true
+    magick tests/desktop.ppm "$SHOT" 2>/dev/null || convert tests/desktop.ppm "$SHOT" 2>/dev/null || true
 }
 
-mkdir -p tests docs
+mkdir -p tests screenshot
 
 # --- 1. desktop rendered: "System Disk" AND "Workspace" -----------------------
 echo "[desktop-test] 1/5 waiting for the desktop — 'System Disk' AND 'Workspace' (<= ${DESKTOP_DEADLINE}s)"
@@ -113,7 +115,7 @@ while [ "$(date +%s)" -lt "$END" ]; do
     sleep 2
 done
 
-# --- 6. capture — always leave docs/desktop.png (the published screenshot) -----
+# --- 6. capture — always leave $SHOT (the published screenshot) ---------------
 save_shot "$f"
 if [ "$ok" -ne 1 ]; then
     echo "[desktop-test] FAIL(5): 'About This Computer' never appeared."
@@ -122,4 +124,4 @@ if [ "$ok" -ne 1 ]; then
     echo "[desktop-test]   last OCR text:"; printf '%s\n' "${text:-<none>}" | sed 's/^/[ocr] /'
     exit 1
 fi
-echo "[desktop-test] PASS: 'About This Computer' is up — wrote docs/desktop.png (the published screenshot)"
+echo "[desktop-test] PASS: 'About This Computer' is up — wrote $SHOT (the published screenshot)"

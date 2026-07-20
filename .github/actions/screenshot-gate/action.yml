@@ -5,12 +5,18 @@ description: >
   monitor (screendump + sendkey; no mouse, nothing in-guest). Each step is a hard
   gate: greeter appears -> desktop OCRs "System Disk" AND "Workspace" -> close
   windows (Cmd+W) -> open About This Computer (Cmd+R, run "uitest about") -> OCR
-  "About This Computer". The ONLY published screenshot (docs/desktop.png) is the
-  About-This-Computer frame. Init-agnostic on purpose: it observes the shared
+  "About This Computer". The ONLY published screenshot (named gershwin-on-<flavor>.png
+  from the caller's flavor) is the About-This-Computer frame. Init-agnostic on
+  purpose: it observes the shared
   Gershwin greeter/desktop, so the same gate works for every flavor regardless of
   whether launchd, systemd, rc.d or openrc started the session.
 
 inputs:
+  flavor:
+    description: >
+      Flavor being tested (e.g. nextbsd, devuan) — supplied by the caller
+      workflow. Used only to name the published screenshot gershwin-on-<flavor>.png.
+    required: true
   iso-dir:
     description: Directory containing the ISO to boot (first *.iso is used).
     required: false
@@ -39,7 +45,7 @@ runs:
         fi
         ISO=$(ls "${{ inputs.iso-dir }}"/*.iso 2>/dev/null | head -1)
         [ -n "$ISO" ] || { echo "::error::no ISO in ${{ inputs.iso-dir }}"; ls -laR "${{ inputs.iso-dir }}"; exit 1; }
-        mkdir -p tests docs
+        mkdir -p tests screenshot
         OVMF=/usr/share/ovmf/OVMF.fd
         [ -f "$OVMF" ] || OVMF=/usr/share/OVMF/OVMF_CODE.fd
         ACCEL="-accel tcg -cpu qemu64"
@@ -77,6 +83,8 @@ runs:
     # blocks publish (needs.test.result == 'success').
     - name: desktop-test (System Disk + Workspace → About This Computer)
       shell: bash
+      env:
+        GATE_FLAVOR: ${{ inputs.flavor }}
       run: sh "${{ github.action_path }}/desktop-test.sh"
 
     - name: Upload desktop screenshot
@@ -84,7 +92,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: desktop-screenshot
-        path: docs/desktop.png
+        path: screenshot/gershwin-on-${{ inputs.flavor }}.png
         if-no-files-found: ignore
 
     - name: Shut down VM
@@ -103,5 +111,5 @@ runs:
           tests/serial.log
           tests/frames/
           tests/*.ppm
-          docs/desktop.png
+          screenshot/*.png
         if-no-files-found: ignore

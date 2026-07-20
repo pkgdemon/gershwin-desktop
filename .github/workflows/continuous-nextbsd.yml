@@ -101,6 +101,7 @@ jobs:
       # here fails the job and blocks publish (needs.test.result == 'success').
       - uses: ./.github/actions/screenshot-gate
         with:
+          flavor: nextbsd
           iso-dir: artifacts
           arch: amd64
 
@@ -124,12 +125,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: desktop-screenshot
-          path: docs
+          path: screenshot
 
       - uses: ./.github/actions/publish-continuous
         with:
-          flavor: nextbsd
           tag: continuous-nextbsd
           assets-dir: dist
-          screenshot: docs/desktop.png
+          screenshot: screenshot/gershwin-on-nextbsd.png
           token: ${{ secrets.GITHUB_TOKEN }}
