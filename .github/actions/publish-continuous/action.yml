@@ -24,7 +24,7 @@ inputs:
     required: false
     default: Continuous build
   token:
-    description: Token for gh (pass ${{ secrets.GITHUB_TOKEN }}).
+    description: Token for gh (pass the caller's GITHUB_TOKEN secret).
     required: true
 
 runs:
