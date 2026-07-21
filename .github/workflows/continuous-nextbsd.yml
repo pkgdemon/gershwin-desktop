@@ -1,43 +1,28 @@
 name: continuous-nextbsd
 
-# Reference flavor for the monorepo: changes -> build -> gate -> publish.
+# Reference flavor for the monorepo: build -> gate -> publish, on EVERY run.
 # The build is the only flavor-specific bit (inline, in a FreeBSD VM). Everything
 # else is the shared layer every flavor calls: free-disk, screenshot-gate (boot
 # + greeter login + desktop-render check, init-agnostic), publish-continuous.
+#
+# Trigger contract: a change to README.md alone never builds; a change anywhere
+# else does. There is NO "reuse the last ISO" fast path — the gate always boots
+# the ISO this run just built, so it can never test an image that doesn't exist.
 
 on:
   push:
     branches: [main]
-    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/continuous-nextbsd.yml']
+    paths-ignore: ['README.md']
   pull_request:
-    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/continuous-nextbsd.yml']
+    paths-ignore: ['README.md']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  # Skip the ~13-min build for a tests-only change and boot the already-published
-  # continuous ISO instead.
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.f.outputs.code }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: f
-        with:
-          filters: |
-            code:
-              - 'targets/nextbsd/build.sh'
-              - 'targets/nextbsd/pkglist.txt'
-              - 'targets/nextbsd/overlays/**'
-
   build:
     name: build (nextbsd amd64)
-    needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -73,27 +58,18 @@ jobs:
 
   test:
     name: boot + login + screenshot (nextbsd amd64)
-    needs: [changes, build]
-    if: ${{ always() && !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    needs: [build]
+    if: ${{ needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
       - name: Download fresh build artifact
-        if: ${{ needs.build.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: gershwin-nextbsd-amd64
           path: artifacts
-
-      - name: Download published continuous ISO (tests-only change)
-        if: ${{ needs.build.result == 'skipped' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p artifacts
-          gh release download continuous-nextbsd --repo "$GITHUB_REPOSITORY" --pattern '*.iso' --dir artifacts
 
       # The whole boot -> greeter -> admin login -> desktop-render gate lives in
       # the shared action. It observes the Gershwin greeter/desktop from outside
