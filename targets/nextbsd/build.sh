@@ -27,6 +27,9 @@ ROOTFS=$WORK/rootfs
 OUT=$WORK/iso
 GERSHWIN_REPO=${GERSHWIN_REPO:-https://github.com/gershwin-desktop/gershwin-developer.git}
 GERSHWIN_REF=${GERSHWIN_REF:-main}
+# Optional source-repo branch passed to checkout.sh (e.g. GERSHWIN_BRANCH=dev for
+# the dev channel). Empty = default branches, per-repo fallback. See checkout.sh.
+GERSHWIN_BRANCH="${GERSHWIN_BRANCH:-}"
 IMG_DATE=$(date -u +%Y%m%d%H%M%S)
 # Canonical artifact name, shared by EVERY Gershwin flavor (see the naming
 # convention in pkgdemon.github.io):
@@ -196,7 +199,7 @@ chroot "$ROOTFS" /bin/sh -eu -c '
     git clone --depth 1 -b '"$GERSHWIN_REF"' '"$GERSHWIN_REPO"' /Developer
     cd /Developer
     sh Library/Scripts/bootstrap.sh
-    sh Library/Scripts/checkout.sh
+    BRANCH='"$GERSHWIN_BRANCH"' sh Library/Scripts/checkout.sh
     make install
 '
 [ -d "$ROOTFS/System/Library" ] || { echo "ERROR: /System was not produced" >&2; exit 1; }

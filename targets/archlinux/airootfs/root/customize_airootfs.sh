@@ -13,9 +13,9 @@ pacman-key --populate archlinux
 mount -t proc proc /proc
 
 # https://github.com/gershwin-desktop/gershwin-developer
-git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer
+git clone -b "${GERSHWIN_REF:-main}" https://github.com/gershwin-desktop/gershwin-developer.git /Developer
 /Developer/Library/Scripts/bootstrap.sh
-/Developer/Library/Scripts/checkout.sh
+BRANCH="${GERSHWIN_BRANCH:-}" /Developer/Library/Scripts/checkout.sh
 cd /Developer && sudo -E make install
 
 . /System/Library/Makefiles/GNUstep.sh

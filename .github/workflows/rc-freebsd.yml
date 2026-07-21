@@ -1,4 +1,4 @@
-name: continuous-freebsd
+name: rc-freebsd
 
 # FreeBSD flavor: build -> gate -> publish, on EVERY run. Same shared layer as
 # nextbsd (free-disk, screenshot-gate, publish-continuous); only the inline build
@@ -9,9 +9,9 @@ name: continuous-freebsd
 on:
   push:
     branches: [main]
-    paths: ['targets/freebsd/**', '.github/actions/**', '.github/workflows/continuous-freebsd.yml']
+    paths: ['targets/freebsd/**', '.github/actions/**', '.github/workflows/rc-freebsd.yml']
   pull_request:
-    paths: ['targets/freebsd/**', '.github/actions/**', '.github/workflows/continuous-freebsd.yml']
+    paths: ['targets/freebsd/**', '.github/actions/**', '.github/workflows/rc-freebsd.yml']
   workflow_dispatch:
 
 permissions:
@@ -85,7 +85,7 @@ jobs:
           arch: amd64
 
   publish:
-    name: publish continuous-freebsd
+    name: publish freebsd-rc
     needs: [build, test]
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
@@ -107,8 +107,8 @@ jobs:
 
       - uses: ./.github/actions/publish-continuous
         with:
-          tag: continuous-freebsd
-          title: FreeBSD
+          tag: freebsd-rc
+          title: FreeBSD (rc)
           assets-dir: dist
           screenshot: screenshot/gershwin-on-freebsd.png
           token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-name: continuous-debian
+name: rc-debian
 
 # Debian flavor: build -> gate -> publish. Linux family — the ISO is built INSIDE
 # a Debian container (debian:latest, --privileged) with live-build, the pattern
@@ -10,9 +10,9 @@ name: continuous-debian
 on:
   push:
     branches: [main]
-    paths: ['targets/debian/**', '.github/actions/**', '.github/workflows/continuous-debian.yml']
+    paths: ['targets/debian/**', '.github/actions/**', '.github/workflows/rc-debian.yml']
   pull_request:
-    paths: ['targets/debian/**', '.github/actions/**', '.github/workflows/continuous-debian.yml']
+    paths: ['targets/debian/**', '.github/actions/**', '.github/workflows/rc-debian.yml']
   workflow_dispatch:
 
 permissions:
@@ -89,7 +89,7 @@ jobs:
           arch: amd64
 
   publish:
-    name: publish continuous-debian
+    name: publish debian-rc
     needs: [build, test]
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
@@ -111,8 +111,8 @@ jobs:
 
       - uses: ./.github/actions/publish-continuous
         with:
-          tag: continuous-debian
-          title: Debian
+          tag: debian-rc
+          title: Debian (rc)
           assets-dir: dist
           screenshot: screenshot/gershwin-on-debian.png
           token: ${{ secrets.GITHUB_TOKEN }}

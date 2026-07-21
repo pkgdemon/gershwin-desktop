@@ -1,4 +1,4 @@
-name: continuous-devuan
+name: rc-devuan
 
 # Devuan flavor: build -> gate -> publish. Linux family — the ISO is built INSIDE
 # the flavor's own distro container (targets/devuan/ci/containers/Dockerfile: a
@@ -10,9 +10,9 @@ name: continuous-devuan
 on:
   push:
     branches: [main]
-    paths: ['targets/devuan/**', '.github/actions/**', '.github/workflows/continuous-devuan.yml']
+    paths: ['targets/devuan/**', '.github/actions/**', '.github/workflows/rc-devuan.yml']
   pull_request:
-    paths: ['targets/devuan/**', '.github/actions/**', '.github/workflows/continuous-devuan.yml']
+    paths: ['targets/devuan/**', '.github/actions/**', '.github/workflows/rc-devuan.yml']
   workflow_dispatch:
 
 permissions:
@@ -71,7 +71,7 @@ jobs:
           arch: amd64
 
   publish:
-    name: publish continuous-devuan
+    name: publish devuan-rc
     needs: [build, test]
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
@@ -93,8 +93,8 @@ jobs:
 
       - uses: ./.github/actions/publish-continuous
         with:
-          tag: continuous-devuan
-          title: Devuan
+          tag: devuan-rc
+          title: Devuan (rc)
           assets-dir: dist
           screenshot: screenshot/gershwin-on-devuan.png
           token: ${{ secrets.GITHUB_TOKEN }}

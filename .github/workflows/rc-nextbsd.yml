@@ -1,4 +1,4 @@
-name: continuous-nextbsd
+name: rc-nextbsd
 
 # Reference flavor for the monorepo: build -> gate -> publish, on EVERY run.
 # The build is the only flavor-specific bit (inline, in a FreeBSD VM). Everything
@@ -13,9 +13,9 @@ name: continuous-nextbsd
 on:
   push:
     branches: [main]
-    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/continuous-nextbsd.yml']
+    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/rc-nextbsd.yml']
   pull_request:
-    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/continuous-nextbsd.yml']
+    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/rc-nextbsd.yml']
   workflow_dispatch:
 
 permissions:
@@ -83,7 +83,7 @@ jobs:
           arch: amd64
 
   publish:
-    name: publish continuous-nextbsd
+    name: publish nextbsd-rc
     # Public release is gated on boot + login + screenshot all passing.
     needs: [build, test]
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
@@ -106,8 +106,8 @@ jobs:
 
       - uses: ./.github/actions/publish-continuous
         with:
-          tag: continuous-nextbsd
-          title: NextBSD
+          tag: nextbsd-rc
+          title: NextBSD (rc)
           assets-dir: dist
           screenshot: screenshot/gershwin-on-nextbsd.png
           token: ${{ secrets.GITHUB_TOKEN }}

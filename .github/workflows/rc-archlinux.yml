@@ -1,4 +1,4 @@
-name: continuous-archlinux
+name: rc-archlinux
 
 # Arch Linux flavor: build -> gate -> publish. Linux family — the ISO is built
 # INSIDE an Arch container (archlinux:latest, --privileged) with mkarchiso, the
@@ -10,9 +10,9 @@ name: continuous-archlinux
 on:
   push:
     branches: [main]
-    paths: ['targets/archlinux/**', '.github/actions/**', '.github/workflows/continuous-archlinux.yml']
+    paths: ['targets/archlinux/**', '.github/actions/**', '.github/workflows/rc-archlinux.yml']
   pull_request:
-    paths: ['targets/archlinux/**', '.github/actions/**', '.github/workflows/continuous-archlinux.yml']
+    paths: ['targets/archlinux/**', '.github/actions/**', '.github/workflows/rc-archlinux.yml']
   workflow_dispatch:
 
 permissions:
@@ -71,7 +71,7 @@ jobs:
           arch: amd64
 
   publish:
-    name: publish continuous-archlinux
+    name: publish archlinux-rc
     needs: [build, test]
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
@@ -93,8 +93,8 @@ jobs:
 
       - uses: ./.github/actions/publish-continuous
         with:
-          tag: continuous-archlinux
-          title: Arch Linux
+          tag: archlinux-rc
+          title: Arch Linux (rc)
           assets-dir: dist
           screenshot: screenshot/gershwin-on-archlinux.png
           token: ${{ secrets.GITHUB_TOKEN }}

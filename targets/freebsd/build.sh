@@ -16,6 +16,13 @@ LABEL="FREEBSD"
 IMAGE_NAME_PREFIX="gershwin-on-freebsd"
 WORKDIR="/usr/local/freebsd-build"
 
+# gershwin-developer clone ref (default main) and the source-repo branch passed
+# to checkout.sh (empty = default branches). The dev workflow sets these to build
+# the dev channel; unset = the rc/default behaviour. See gershwin-developer's
+# checkout.sh for the per-repo branch fallback.
+GERSHWIN_REF="${GERSHWIN_REF:-main}"
+GERSHWIN_BRANCH="${GERSHWIN_BRANCH:-}"
+
 # Target Environment (Decoupled from Host)
 TARGET_VERSION="${TARGET_VERSION:-14}"
 TARGET_ARCH="${TARGET_ARCH:-amd64}"
@@ -287,7 +294,7 @@ EFS
 
 build_gershwin_components() {
     log "Building Gershwin components from source..."
-    git clone --depth 1 https://github.com/gershwin-desktop/gershwin-developer "${RELEASE_DIR}/Developer"
+    git clone --depth 1 -b "${GERSHWIN_REF}" https://github.com/gershwin-desktop/gershwin-developer "${RELEASE_DIR}/Developer"
 
     cp /etc/resolv.conf "${RELEASE_DIR}/etc/resolv.conf"
 
@@ -302,7 +309,7 @@ build_gershwin_components() {
 
     # Build inside chroot
     chroot "${RELEASE_DIR}" sh -c "/Developer/Library/Scripts/bootstrap.sh"
-    chroot "${RELEASE_DIR}" sh -c "PINNED=1 /Developer/Library/Scripts/checkout.sh"
+    chroot "${RELEASE_DIR}" sh -c "PINNED=1 BRANCH=\"${GERSHWIN_BRANCH}\" /Developer/Library/Scripts/checkout.sh"
     chroot "${RELEASE_DIR}" sh -c "cd /Developer && make install"
 
     # Cleanup mounts

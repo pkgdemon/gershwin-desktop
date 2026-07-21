@@ -14,6 +14,12 @@ WORK="$(pwd)/work"
 # Canonical cross-flavor name: gershwin-on-<flavor>-<UTC YYYYMMDDhhmmss>-<arch>.iso
 ISO_NAME="gershwin-on-devuan-$(date -u +%Y%m%d%H%M%S)-${HOST_ARCH}.iso"
 
+# gershwin-developer clone ref (default main) + the source-repo branch passed to
+# checkout.sh (empty = default). The dev workflow sets these for the dev channel;
+# unset = rc/default behaviour. See gershwin-developer's checkout.sh.
+GERSHWIN_REF="${GERSHWIN_REF:-main}"
+GERSHWIN_BRANCH="${GERSHWIN_BRANCH:-}"
+
 # === Clean previous build ===
 rm -rf "${WORK}"
 mkdir -p "${WORK}"
@@ -68,9 +74,9 @@ chroot "${WORK}/rootfs" /bin/sh -c "
 echo "==> Installing Gershwin..."
 
 chroot "${WORK}/rootfs" /bin/sh -c "
-    git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer
+    git clone -b \"${GERSHWIN_REF}\" https://github.com/gershwin-desktop/gershwin-developer.git /Developer
     /Developer/Library/Scripts/bootstrap.sh
-    /Developer/Library/Scripts/checkout.sh
+    BRANCH=\"${GERSHWIN_BRANCH}\" /Developer/Library/Scripts/checkout.sh
     cd /Developer && make install
 "
 
