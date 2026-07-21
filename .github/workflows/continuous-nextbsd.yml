@@ -106,7 +106,7 @@ jobs:
       - uses: ./.github/actions/publish-continuous
         with:
           tag: continuous-nextbsd
-          title: Gershwin on NextBSD (continuous)
+          title: NextBSD
           assets-dir: dist
           screenshot: screenshot/gershwin-on-nextbsd.png
           token: ${{ secrets.GITHUB_TOKEN }}
