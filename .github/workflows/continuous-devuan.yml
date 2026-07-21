@@ -1,8 +1,9 @@
 name: continuous-devuan
 
-# Devuan flavor: build -> gate -> publish. Linux family — builds directly on
-# ubuntu-latest (debootstrap + squashfs + grub live ISO), NOT in a VM. Same
-# shared layer as the BSD flavors (free-disk, screenshot-gate, publish-continuous).
+# Devuan flavor: build -> gate -> publish. Linux family — the ISO is built INSIDE
+# the flavor's own distro container (targets/devuan/ci/containers/Dockerfile: a
+# Devuan build environment), the pattern every Linux flavor follows (devuan ->
+# devuan, debian -> debian, arch -> arch). Gate + publish are the shared layer.
 # amd64 only for now; arm64 is a later addition (needs dual-arch publish support).
 # Trigger: targets/devuan/** or shared .github/actions/**; README never builds.
 
@@ -27,24 +28,16 @@ jobs:
 
       - uses: ./.github/actions/free-disk
 
-      - name: Install ISO build toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            debootstrap squashfs-tools xorriso mtools dosfstools \
-            grub-common grub2-common grub-pc-bin grub-efi-amd64-bin \
-            wget xz-utils ca-certificates
-          # debootstrap on a non-Devuan host has no "excalibur" script — Devuan
-          # excalibur tracks Debian trixie/sid, so alias it to the sid profile.
-          sudo ln -sf /usr/share/debootstrap/scripts/sid \
-            /usr/share/debootstrap/scripts/excalibur
+      - name: Build the Devuan build-environment container
+        run: docker build --build-arg TARGETARCH=amd64 -t gershwin-devuan-build targets/devuan/ci/containers
 
-      - name: Build ISO
+      - name: Build ISO inside the Devuan container
         run: |
           set -e
           # build.sh reads packages.list/grub.cfg from its own dir and writes the
-          # ISO into that dir; it needs root (debootstrap/chroot/mount).
-          ( cd targets/devuan && sudo sh ./build.sh )
+          # ISO there; it needs root + mount (debootstrap/chroot) -> --privileged.
+          docker run --privileged --rm -v "$PWD:/repo" -w /repo/targets/devuan \
+            gershwin-devuan-build sh -ec './build.sh'
           mkdir -p out
           sudo cp targets/devuan/gershwin-on-devuan-*.iso out/
           sudo chown "$(id -u):$(id -g)" out/*.iso
