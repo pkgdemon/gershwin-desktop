@@ -1,0 +1,107 @@
+name: continuous-devuan
+
+# Devuan flavor: build -> gate -> publish. Linux family — builds directly on
+# ubuntu-latest (debootstrap + squashfs + grub live ISO), NOT in a VM. Same
+# shared layer as the BSD flavors (free-disk, screenshot-gate, publish-continuous).
+# amd64 only for now; arm64 is a later addition (needs dual-arch publish support).
+# Trigger: targets/devuan/** or shared .github/actions/**; README never builds.
+
+on:
+  push:
+    branches: [main]
+    paths: ['targets/devuan/**', '.github/actions/**', '.github/workflows/continuous-devuan.yml']
+  pull_request:
+    paths: ['targets/devuan/**', '.github/actions/**', '.github/workflows/continuous-devuan.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (devuan amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/free-disk
+
+      - name: Install ISO build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            debootstrap squashfs-tools xorriso mtools dosfstools \
+            grub-common grub2-common grub-pc-bin grub-efi-amd64-bin \
+            wget xz-utils ca-certificates
+          # debootstrap on a non-Devuan host has no "excalibur" script — Devuan
+          # excalibur tracks Debian trixie/sid, so alias it to the sid profile.
+          sudo ln -sf /usr/share/debootstrap/scripts/sid \
+            /usr/share/debootstrap/scripts/excalibur
+
+      - name: Build ISO
+        run: |
+          set -e
+          # build.sh reads packages.list/grub.cfg from its own dir and writes the
+          # ISO into that dir; it needs root (debootstrap/chroot/mount).
+          ( cd targets/devuan && sudo sh ./build.sh )
+          mkdir -p out
+          sudo cp targets/devuan/gershwin-on-devuan-*.iso out/
+          sudo chown "$(id -u):$(id -g)" out/*.iso
+          ls -lh out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gershwin-devuan-amd64
+          path: out
+          if-no-files-found: error
+
+  test:
+    name: boot + login + screenshot (devuan amd64)
+    needs: [build]
+    if: ${{ needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download fresh build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gershwin-devuan-amd64
+          path: artifacts
+
+      - uses: ./.github/actions/screenshot-gate
+        with:
+          flavor: devuan
+          iso-dir: artifacts
+          arch: amd64
+
+  publish:
+    name: publish continuous-devuan
+    needs: [build, test]
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ISO
+        uses: actions/download-artifact@v4
+        with:
+          name: gershwin-devuan-amd64
+          path: dist
+
+      - name: Download screenshot
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-screenshot
+          path: screenshot
+
+      - uses: ./.github/actions/publish-continuous
+        with:
+          tag: continuous-devuan
+          title: Devuan
+          assets-dir: dist
+          screenshot: screenshot/gershwin-on-devuan.png
+          token: ${{ secrets.GITHUB_TOKEN }}
