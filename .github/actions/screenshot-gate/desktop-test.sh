@@ -59,6 +59,16 @@ type_str() {
         case "$ch" in ' ') key spc ;; *) key "$ch" ;; esac
     done
 }
+relogin() {   # re-submit the greeter login. The loginwindow step fires its
+    # keystrokes once, early — if the greeter wasn't interactive yet (a slow
+    # flavor can pass boot-test on a not-quite-ready frame), 'admin' half-lands
+    # and never submits. Clear the field, retype admin, and submit via BOTH the
+    # Enter and Tab->Enter flows. Only ever called while the greeter is still
+    # on-screen (see the OCR guard below), so it can't disturb a live desktop.
+    n=0; while [ "$n" -lt 24 ]; do key backspace; n=$((n + 1)); done
+    type_str admin
+    key ret; sleep 0.6; key tab; sleep 0.3; key ret; sleep 0.6; key ret
+}
 save_shot() {   # copy $1 (or a fresh screendump) to the published $SHOT
     if [ -n "${1:-}" ] && [ -s "${1:-}" ]; then cp "$1" tests/desktop.ppm 2>/dev/null || true
     else mon "screendump tests/desktop.ppm"; sleep 1; fi
@@ -80,6 +90,13 @@ while [ "$(date +%s)" -lt "$END" ]; do
     has 'Workspace' "$text" && w=1
     echo "[desktop-test]   frame $i: System Disk=$d Workspace=$w"
     { [ "$d" -eq 1 ] && [ "$w" -eq 1 ]; } && { up=1; break; }
+    # If the greeter's own controls are still on screen, the first login attempt
+    # didn't take — re-submit admin. Guarded on greeter text so it NEVER fires on
+    # a desktop that's merely still rendering (that shows no such labels).
+    if has 'Log[[:space:]]*In|Shut[[:space:]]*Down|Username|Restart' "$text"; then
+        echo "[desktop-test]   greeter still up — re-attempting admin login"
+        relogin
+    fi
     sleep 3
 done
 if [ "$up" -ne 1 ]; then

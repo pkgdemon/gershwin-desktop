@@ -34,7 +34,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             git sudo live-build curl dosfstools parted rsync e2fsprogs kpartx zip \
-            xorriso ca-certificates
+            xorriso xz-utils ca-certificates
 
       - uses: actions/checkout@v4
 
@@ -48,6 +48,7 @@ jobs:
                     --distribution bookworm \
                     --archive-areas "main contrib non-free non-free-firmware" \
                     --initramfs live-boot \
+                    --zsync false \
                     --mirror-bootstrap http://deb.debian.org/debian/ \
                     --mirror-chroot http://deb.debian.org/debian/ \
                     --mirror-binary http://deb.debian.org/debian/ \
