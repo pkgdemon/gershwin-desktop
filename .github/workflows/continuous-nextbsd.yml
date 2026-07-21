@@ -5,7 +5,7 @@ name: continuous-nextbsd
 # else is the shared layer every flavor calls: free-disk, screenshot-gate (boot
 # + greeter login + desktop-render check, init-agnostic), publish-continuous.
 #
-# Trigger: this flavor's target (targets/nextbsd/**) or shared infra (.github/**);
+# Trigger: this flavor's target (targets/nextbsd/**) or shared actions (.github/actions/**);
 # README and other top-level files never build. There is NO "reuse the last ISO"
 # fast path — the gate always boots the ISO this run just built, so it can never
 # test an image that doesn't exist.
@@ -13,9 +13,9 @@ name: continuous-nextbsd
 on:
   push:
     branches: [main]
-    paths: ['targets/nextbsd/**', '.github/**']
+    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/continuous-nextbsd.yml']
   pull_request:
-    paths: ['targets/nextbsd/**', '.github/**']
+    paths: ['targets/nextbsd/**', '.github/actions/**', '.github/workflows/continuous-nextbsd.yml']
   workflow_dispatch:
 
 permissions:
