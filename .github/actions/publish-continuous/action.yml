@@ -97,4 +97,4 @@ runs:
           fi
           printf '**Build log:** %s\n' "$run_url"
         } > notes.md
-        gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+        gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "${{ inputs.title }}" --notes-file notes.md
