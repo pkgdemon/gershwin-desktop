@@ -1,21 +1,17 @@
-name: continuous-nextbsd
+name: continuous-freebsd
 
-# Reference flavor for the monorepo: build -> gate -> publish, on EVERY run.
-# The build is the only flavor-specific bit (inline, in a FreeBSD VM). Everything
-# else is the shared layer every flavor calls: free-disk, screenshot-gate (boot
-# + greeter login + desktop-render check, init-agnostic), publish-continuous.
-#
-# Trigger: this flavor's target (targets/nextbsd/**) or shared infra (.github/**);
-# README and other top-level files never build. There is NO "reuse the last ISO"
-# fast path — the gate always boots the ISO this run just built, so it can never
-# test an image that doesn't exist.
+# FreeBSD flavor: build -> gate -> publish, on EVERY run. Same shared layer as
+# nextbsd (free-disk, screenshot-gate, publish-continuous); only the inline build
+# differs — FreeBSD base+ports and rc.d overlays instead of NextBSD-everything +
+# launchd. Trigger: targets/freebsd/** or shared .github/**; README never builds.
+# No "reuse the last ISO" fast path — the gate boots the freshly built ISO.
 
 on:
   push:
     branches: [main]
-    paths: ['targets/nextbsd/**', '.github/**']
+    paths: ['targets/freebsd/**', '.github/**']
   pull_request:
-    paths: ['targets/nextbsd/**', '.github/**']
+    paths: ['targets/freebsd/**', '.github/**']
   workflow_dispatch:
 
 permissions:
@@ -23,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    name: build (nextbsd amd64)
+    name: build (freebsd amd64)
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -34,31 +30,38 @@ jobs:
       - name: Build ISO inside FreeBSD VM
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "15.1"
+          release: "15.0"
           usesh: true
           sync: rsync
           copyback: true
           cpu: 4
           mem: 8192
           prepare: |
-            pkg install -y git
+            pkg install -y git-lite zsync wget bash zip librsvg2 ca_root_nss transmission-cli fdupes
           run: |
             set -e
+            kldload zfs || true
+            kldload tmpfs || true
+            kldload nullfs || true
+            kldload geom_uzip || true
+            mkdir -p /usr/local/freebsd-build/uzip /usr/local/freebsd-build/cdroot
+            mount -t tmpfs tmpfs /usr/local/freebsd-build/uzip || true
+            mount -t tmpfs tmpfs /usr/local/freebsd-build/cdroot || true
+            export TARGET_VERSION=15
             export TARGET_ARCH=amd64
-            export GERSHWIN_REF=main
-            /bin/sh ./targets/nextbsd/build.sh
-            ls -lh /usr/local/gon-build/iso/
+            /bin/sh ./targets/freebsd/build.sh
+            ls -lh /usr/local/freebsd-build/iso/
             mkdir -p out
-            cp /usr/local/gon-build/iso/*.iso out/
+            cp /usr/local/freebsd-build/iso/*.iso out/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: gershwin-nextbsd-amd64
+          name: gershwin-freebsd-amd64
           path: out
           if-no-files-found: error
 
   test:
-    name: boot + login + screenshot (nextbsd amd64)
+    name: boot + login + screenshot (freebsd amd64)
     needs: [build]
     if: ${{ needs.build.result == 'success' }}
     runs-on: ubuntu-latest
@@ -69,22 +72,17 @@ jobs:
       - name: Download fresh build artifact
         uses: actions/download-artifact@v4
         with:
-          name: gershwin-nextbsd-amd64
+          name: gershwin-freebsd-amd64
           path: artifacts
 
-      # The whole boot -> greeter -> admin login -> desktop-render gate lives in
-      # the shared action. It observes the Gershwin greeter/desktop from outside
-      # the guest, so it is identical for every flavor (init-agnostic). A failure
-      # here fails the job and blocks publish (needs.test.result == 'success').
       - uses: ./.github/actions/screenshot-gate
         with:
-          flavor: nextbsd
+          flavor: freebsd
           iso-dir: artifacts
           arch: amd64
 
   publish:
-    name: publish continuous-nextbsd
-    # Public release is gated on boot + login + screenshot all passing.
+    name: publish continuous-freebsd
     needs: [build, test]
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
@@ -94,7 +92,7 @@ jobs:
       - name: Download ISO
         uses: actions/download-artifact@v4
         with:
-          name: gershwin-nextbsd-amd64
+          name: gershwin-freebsd-amd64
           path: dist
 
       - name: Download screenshot
@@ -106,8 +104,8 @@ jobs:
 
       - uses: ./.github/actions/publish-continuous
         with:
-          tag: continuous-nextbsd
-          title: NextBSD
+          tag: continuous-freebsd
+          title: FreeBSD
           assets-dir: dist
-          screenshot: screenshot/gershwin-on-nextbsd.png
+          screenshot: screenshot/gershwin-on-freebsd.png
           token: ${{ secrets.GITHUB_TOKEN }}
