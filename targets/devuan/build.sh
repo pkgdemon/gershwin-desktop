@@ -21,9 +21,12 @@ mkdir -p "${WORK}"
 # === Step 1: Bootstrap minimal Devuan root filesystem ===
 # On a non-Devuan CI host (ubuntu-latest) debootstrap ships no "excalibur"
 # script and lacks the Devuan keyring; the workflow symlinks the script to sid
-# and we skip signature checks for the bootstrap (CI build, not a trust root).
+# and we skip signature checks for the bootstrap itself (CI build, not a trust
+# root). --include=devuan-keyring installs the keyring INTO the rootfs during
+# bootstrap so apt-get update inside the chroot can then verify Devuan's repos.
 echo "==> Bootstrapping ${DIST} root filesystem..."
-debootstrap --no-check-gpg --arch="${ARCH}" --variant=minbase "${DIST}" "${WORK}/rootfs" "${MIRROR}"
+debootstrap --no-check-gpg --include=devuan-keyring \
+    --arch="${ARCH}" --variant=minbase "${DIST}" "${WORK}/rootfs" "${MIRROR}"
 
 # === Step 2: Configure apt sources inside rootfs ===
 cat > "${WORK}/rootfs/etc/apt/sources.list" << EOF
