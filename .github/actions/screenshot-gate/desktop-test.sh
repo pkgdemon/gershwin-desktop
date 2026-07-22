@@ -9,7 +9,8 @@
 #                          dialog ("Type the command to execute:")
 #   3. close everything  — Cmd+W a few times
 #   4. open About        — Cmd+R, type "uitest aboutcomputer", Enter
-#   5. About is up       — OCR must find "About This Computer"
+#   5. About is up       — OCR must find "About This Computer" AND "Workspace"
+#                          (the menu bar must still be present at capture time)
 #   6. capture           — screendump THIS frame -> screenshot/gershwin-on-<flavor>.png,
 #                          the ONLY published screenshot (About This Computer + desktop)
 #
@@ -145,25 +146,37 @@ type_str "$CMD"
 key ret
 park   # get the mouse pointer out of the About window before we capture the frame
 
-# --- 5. About This Computer is up ---------------------------------------------
-echo "[desktop-test] 5/5 verifying 'About This Computer' (<= ${ABOUT_DEADLINE}s)"
-END=$(( $(date +%s) + ABOUT_DEADLINE )); i=0; ok=0; text=""; f=""
+# --- 5. About This Computer up AND the menu bar STILL present -----------------
+# Require BOTH "About This Computer" and "Workspace" in the SAME (final) frame.
+# "Workspace" was checked in step 1, but the menu bar can crash/vanish between
+# then and the capture (gershwin-desktop/gershwin-components#98) — we must never
+# publish a menu-less screenshot, and a menu that dies after login must fail here.
+echo "[desktop-test] 5/5 verifying 'About This Computer' + menu bar ('Workspace') (<= ${ABOUT_DEADLINE}s)"
+END=$(( $(date +%s) + ABOUT_DEADLINE )); i=0; ok=0; about=0; menu=0; text=""; f=""
 while [ "$(date +%s)" -lt "$END" ]; do
     i=$((i + 1)); f="tests/about-$(printf '%03d' "$i").ppm"; dump "$f"
     [ -s "$f" ] || { sleep 2; continue; }
-    text=$(ocr "$f")
-    has 'About[[:space:]]*This[[:space:]]*Computer' "$text" && { ok=1; break; }
-    echo "[desktop-test]   frame $i: About This Computer not yet visible"
+    text=$(ocr "$f"); about=0; menu=0
+    has 'About[[:space:]]*This[[:space:]]*Computer' "$text" && about=1
+    has 'Workspace' "$text" && menu=1
+    echo "[desktop-test]   frame $i: About=$about Menu(Workspace)=$menu"
+    { [ "$about" -eq 1 ] && [ "$menu" -eq 1 ]; } && { ok=1; break; }
     sleep 2
 done
 
 # --- 6. capture — always leave $SHOT (the published screenshot) ---------------
 save_shot "$f"
 if [ "$ok" -ne 1 ]; then
-    echo "[desktop-test] FAIL(5): 'About This Computer' never appeared."
-    echo "[desktop-test]   Run… opened (modifier '$MOD' works), so the command ran but produced no About window."
-    echo "[desktop-test]   -> likely: Workspace must be started with -d (to vend uitest's DO), or 'uitest' is not on PATH."
+    if [ "$about" -eq 1 ] && [ "$menu" -ne 1 ]; then
+        echo "[desktop-test] FAIL(5): 'About This Computer' is up but the menu bar ('Workspace') is GONE."
+        echo "[desktop-test]   The menu was present at step 1 then crashed/vanished before capture —"
+        echo "[desktop-test]   do NOT publish a menu-less desktop. See gershwin-desktop/gershwin-components#98."
+    else
+        echo "[desktop-test] FAIL(5): 'About This Computer' never appeared."
+        echo "[desktop-test]   Run… opened (modifier '$MOD' works), so the command ran but produced no About window."
+        echo "[desktop-test]   -> likely: Workspace must be started with -d (to vend uitest's DO), or 'uitest' is not on PATH."
+    fi
     echo "[desktop-test]   last OCR text:"; printf '%s\n' "${text:-<none>}" | sed 's/^/[ocr] /'
     exit 1
 fi
-echo "[desktop-test] PASS: 'About This Computer' is up — wrote $SHOT (the published screenshot)"
+echo "[desktop-test] PASS: 'About This Computer' + menu bar present — wrote $SHOT (the published screenshot)"
