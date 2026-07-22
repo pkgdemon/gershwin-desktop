@@ -407,6 +407,23 @@ prepare_boot_env() {
 
 generate_iso() {
     log "Creating live image (uzip)..."
+    # --- ISO SIZE REPORT (exact, uncompressed): every installed package by
+    #     flatsize + the biggest directories that ship in the rootfs. This is the
+    #     ground truth for what inflates the image (the pkg logs only show
+    #     aggregate sizes). Non-fatal; runs on the final RELEASE_DIR pre-makefs.
+    echo "=================== ISO SIZE REPORT (freebsd) ==================="
+    echo "--- installed packages by flatsize (MiB, top 40) ---"
+    chroot "${RELEASE_DIR}" pkg query '%sb %n-%v' 2>/dev/null \
+      | sort -rn | awk '{printf "  %9.1f  %s\n", $1/1048576, $2}' | head -40 || true
+    echo "--- total installed (all packages, MiB) ---"
+    chroot "${RELEASE_DIR}" pkg query '%sb' 2>/dev/null \
+      | awk '{s+=$1} END{printf "  %9.1f  (n=%d packages)\n", s/1048576, NR}' || true
+    echo "--- biggest directories in the rootfs (MiB, top 30) ---"
+    du -sm "${RELEASE_DIR}"/usr/local/* "${RELEASE_DIR}"/Developer \
+           "${RELEASE_DIR}"/System "${RELEASE_DIR}"/usr/lib "${RELEASE_DIR}"/boot 2>/dev/null \
+      | sort -rn | head -30 || true
+    echo "--- rootfs total (MiB) ---"; du -sm "${RELEASE_DIR}" 2>/dev/null || true
+    echo "================================================================"
     ( cd "${RELEASE_DIR}" ; makefs -b 75% -f 75% -R 262144 "${CD_ROOT}/rootfs.ufs" . )
     mkdir -p "${CD_ROOT}/boot"
     mkuzip -A zstd -C 12 -d -o "${CD_ROOT}/boot/rootfs.uzip" "${CD_ROOT}/rootfs.ufs"

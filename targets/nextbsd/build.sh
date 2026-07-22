@@ -301,6 +301,22 @@ chown -R 0:0 "$ROOTFS/System/Library/LaunchDaemons"
 # 8-10. Repackage as a live ISO (nextbsd build.sh step 7 model, verbatim).
 # ---------------------------------------------------------------------------
 echo "==> live ISO: compact UFS + mkuzip (zstd)"
+# --- ISO SIZE REPORT (exact, uncompressed): every installed package by flatsize
+#     + the biggest directories that ship in the rootfs. Ground truth for what
+#     inflates the image (pkg logs only show aggregate sizes). Non-fatal.
+echo "=================== ISO SIZE REPORT (nextbsd) ==================="
+echo "--- installed packages by flatsize (MiB, top 40) ---"
+chroot "$ROOTFS" pkg query '%sb %n-%v' 2>/dev/null \
+  | sort -rn | awk '{printf "  %9.1f  %s\n", $1/1048576, $2}' | head -40 || true
+echo "--- total installed (all packages, MiB) ---"
+chroot "$ROOTFS" pkg query '%sb' 2>/dev/null \
+  | awk '{s+=$1} END{printf "  %9.1f  (n=%d packages)\n", s/1048576, NR}' || true
+echo "--- biggest directories in the rootfs (MiB, top 30) ---"
+du -sm "$ROOTFS"/usr/local/* "$ROOTFS"/Developer \
+       "$ROOTFS"/System "$ROOTFS"/usr/lib "$ROOTFS"/boot 2>/dev/null \
+  | sort -rn | head -30 || true
+echo "--- rootfs total (MiB) ---"; du -sm "$ROOTFS" 2>/dev/null || true
+echo "================================================================"
 makefs -t ffs -B little -o version=2,label=NBROOT "$WORK/rootfs.iso.ufs" "$ROOTFS"
 # Compress the rootfs with zstd (-A), NOT mkuzip's default zlib: zstd roughly
 # doubles the ratio vs zlib on this tree while keeping the fastest on-demand
