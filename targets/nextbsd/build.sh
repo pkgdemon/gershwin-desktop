@@ -315,6 +315,10 @@ echo "--- biggest directories in the rootfs (MiB, top 30) ---"
 du -sm "$ROOTFS"/usr/local/* "$ROOTFS"/Developer \
        "$ROOTFS"/System "$ROOTFS"/usr/lib "$ROOTFS"/boot 2>/dev/null \
   | sort -rn | head -30 || true
+echo "--- inside /usr/local/share (MiB, top 20) ---"
+du -sm "$ROOTFS"/usr/local/share/* 2>/dev/null | sort -rn | head -20 || true
+echo "--- inside /usr/local/lib (MiB, top 20) ---"
+du -sm "$ROOTFS"/usr/local/lib/* 2>/dev/null | sort -rn | head -20 || true
 echo "--- rootfs total (MiB) ---"; du -sm "$ROOTFS" 2>/dev/null || true
 echo "================================================================"
 makefs -t ffs -B little -o version=2,label=NBROOT "$WORK/rootfs.iso.ufs" "$ROOTFS"

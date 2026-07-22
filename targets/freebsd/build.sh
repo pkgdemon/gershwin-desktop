@@ -422,6 +422,10 @@ generate_iso() {
     du -sm "${RELEASE_DIR}"/usr/local/* "${RELEASE_DIR}"/Developer \
            "${RELEASE_DIR}"/System "${RELEASE_DIR}"/usr/lib "${RELEASE_DIR}"/boot 2>/dev/null \
       | sort -rn | head -30 || true
+    echo "--- inside /usr/local/share (MiB, top 20) ---"
+    du -sm "${RELEASE_DIR}"/usr/local/share/* 2>/dev/null | sort -rn | head -20 || true
+    echo "--- inside /usr/local/lib (MiB, top 20) ---"
+    du -sm "${RELEASE_DIR}"/usr/local/lib/* 2>/dev/null | sort -rn | head -20 || true
     echo "--- rootfs total (MiB) ---"; du -sm "${RELEASE_DIR}" 2>/dev/null || true
     echo "================================================================"
     ( cd "${RELEASE_DIR}" ; makefs -b 75% -f 75% -R 262144 "${CD_ROOT}/rootfs.ufs" . )
