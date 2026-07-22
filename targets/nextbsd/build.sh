@@ -42,7 +42,9 @@ case "$ARCH" in
   arm64|aarch64) ARCH_LABEL=aarch64 ;;
   *)             ARCH_LABEL="$ARCH" ;;
 esac
-ISO_NAME="gershwin-on-${FLAVOR}-${IMG_DATE}-${ARCH_LABEL}.iso"
+# Release channel (rc/dev) infixed after the flavor when set; empty = no channel.
+CHANNEL="${CHANNEL:-}"
+ISO_NAME="gershwin-on-${FLAVOR}-${CHANNEL:+${CHANNEL}-}${IMG_DATE}-${ARCH_LABEL}.iso"
 
 # pkg uses `aarch64` for 64-bit ARM; release tags / artifact names use `arm64`.
 case "$ARCH" in arm64|aarch64) ABIARCH=aarch64 ;; *) ABIARCH="$ARCH" ;; esac

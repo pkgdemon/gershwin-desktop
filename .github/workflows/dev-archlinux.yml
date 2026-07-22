@@ -46,7 +46,7 @@ jobs:
           df -h
           mkarchiso -v -w work -o out targets/archlinux
           iso_file=$(find out -name '*.iso' | head -n 1)
-          out_name="gershwin-on-archlinux-$(date -u +%Y%m%d%H%M%S)-$(uname -m).iso"
+          out_name="gershwin-on-archlinux-dev-$(date -u +%Y%m%d%H%M%S)-$(uname -m).iso"
           mkdir -p "$GITHUB_WORKSPACE/dist-iso"
           cp "$iso_file" "$GITHUB_WORKSPACE/dist-iso/$out_name"
           ls -lh "$GITHUB_WORKSPACE/dist-iso/"
@@ -55,6 +55,7 @@ jobs:
         with:
           name: gershwin-archlinux-x86_64
           path: dist-iso
+          retention-days: 1
           if-no-files-found: error
 
   test:
@@ -106,3 +107,22 @@ jobs:
           assets-dir: dist
           screenshot: screenshot/gershwin-on-archlinux.png
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup:
+    name: purge run ISO artifact
+    needs: [build, test, publish]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete this run's ISO/screenshot artifacts (job-handoff only; ISO is on the release)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name != "boot-artifacts") | .id' \
+          | while read -r id; do
+              gh api -X DELETE "/repos/$GITHUB_REPOSITORY/actions/artifacts/$id" \
+                && echo "deleted artifact $id"
+            done

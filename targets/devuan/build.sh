@@ -11,8 +11,9 @@ case "$HOST_ARCH" in
     *) echo "Unsupported architecture: $HOST_ARCH"; exit 1 ;;
 esac
 WORK="$(pwd)/work"
-# Canonical cross-flavor name: gershwin-on-<flavor>-<UTC YYYYMMDDhhmmss>-<arch>.iso
-ISO_NAME="gershwin-on-devuan-$(date -u +%Y%m%d%H%M%S)-${HOST_ARCH}.iso"
+# Canonical cross-flavor name: gershwin-on-<flavor>[-<channel>]-<UTC stamp>-<arch>.iso
+CHANNEL="${CHANNEL:-}"   # release channel (rc/dev) infixed into the ISO name when set
+ISO_NAME="gershwin-on-devuan-${CHANNEL:+${CHANNEL}-}$(date -u +%Y%m%d%H%M%S)-${HOST_ARCH}.iso"
 
 # gershwin-developer clone ref (default main) + the source-repo branch passed to
 # checkout.sh (empty = default). The dev workflow sets these for the dev channel;

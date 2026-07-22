@@ -37,7 +37,7 @@ jobs:
           # build.sh reads packages.list/grub.cfg from its own dir and writes the
           # ISO there; it needs root + mount (debootstrap/chroot) -> --privileged.
           docker run --privileged --rm -v "$PWD:/repo" -w /repo/targets/devuan \
-            gershwin-devuan-build sh -ec './build.sh'
+            -e CHANNEL=rc gershwin-devuan-build sh -ec './build.sh'
           mkdir -p out
           sudo cp targets/devuan/gershwin-on-devuan-*.iso out/
           sudo chown "$(id -u):$(id -g)" out/*.iso
@@ -47,6 +47,7 @@ jobs:
         with:
           name: gershwin-devuan-amd64
           path: out
+          retention-days: 1
           if-no-files-found: error
 
   test:
@@ -98,3 +99,22 @@ jobs:
           assets-dir: dist
           screenshot: screenshot/gershwin-on-devuan.png
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup:
+    name: purge run ISO artifact
+    needs: [build, test, publish]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete this run's ISO/screenshot artifacts (job-handoff only; ISO is on the release)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name != "boot-artifacts") | .id' \
+          | while read -r id; do
+              gh api -X DELETE "/repos/$GITHUB_REPOSITORY/actions/artifacts/$id" \
+                && echo "deleted artifact $id"
+            done

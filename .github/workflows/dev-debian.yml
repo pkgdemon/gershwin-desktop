@@ -63,7 +63,7 @@ jobs:
                     --bootappend-live "boot=live components quiet splash"
           lb build
           iso_file=$(ls *.iso | head -n 1)
-          out_name="gershwin-on-debian-$(date -u +%Y%m%d%H%M%S)-$(uname -m).iso"
+          out_name="gershwin-on-debian-dev-$(date -u +%Y%m%d%H%M%S)-$(uname -m).iso"
           mv "$iso_file" "$out_name"
           mkdir -p "$GITHUB_WORKSPACE/out"
           cp "$out_name" "$GITHUB_WORKSPACE/out/"
@@ -73,6 +73,7 @@ jobs:
         with:
           name: gershwin-debian-amd64
           path: out
+          retention-days: 1
           if-no-files-found: error
 
   test:
@@ -124,3 +125,22 @@ jobs:
           assets-dir: dist
           screenshot: screenshot/gershwin-on-debian.png
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup:
+    name: purge run ISO artifact
+    needs: [build, test, publish]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete this run's ISO/screenshot artifacts (job-handoff only; ISO is on the release)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name != "boot-artifacts") | .id' \
+          | while read -r id; do
+              gh api -X DELETE "/repos/$GITHUB_REPOSITORY/actions/artifacts/$id" \
+                && echo "deleted artifact $id"
+            done

@@ -14,6 +14,7 @@ set -e -u
 # --- Configuration ---
 LABEL="FREEBSD"
 IMAGE_NAME_PREFIX="gershwin-on-freebsd"
+CHANNEL="${CHANNEL:-}"   # release channel (rc/dev) infixed into the ISO name when set
 WORKDIR="/usr/local/freebsd-build"
 
 # gershwin-developer clone ref (default main) and the source-repo branch passed
@@ -412,9 +413,9 @@ generate_iso() {
     rm -f "${CD_ROOT}/rootfs.ufs"
 
     log "Generating final ISO image..."
-    ISO_PATH="${ISO_DIR}/${IMAGE_NAME_PREFIX}-$(date +%Y%m%d%H%M%S)-${ARCH_STR}.iso"
+    ISO_PATH="${ISO_DIR}/${IMAGE_NAME_PREFIX}-${CHANNEL:+${CHANNEL}-}$(date +%Y%m%d%H%M%S)-${ARCH_STR}.iso"
     # Provide a way to know from the booted ISO what ISO it is
-    echo "${IMAGE_NAME_PREFIX}-$(date +%Y%m%d%H%M%S)-${ARCH_STR}.iso" >> "${CD_ROOT}/.iso"
+    echo "${IMAGE_NAME_PREFIX}-${CHANNEL:+${CHANNEL}-}$(date +%Y%m%d%H%M%S)-${ARCH_STR}.iso" >> "${CD_ROOT}/.iso"
 
     # Canonical path: run the upstream mkisoimages.sh from its directory so it can
     # reliably source install-boot.sh and produce a hybrid EFI/BIOS image.
