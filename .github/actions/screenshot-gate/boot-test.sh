@@ -45,4 +45,8 @@ done
 
 echo "[boot-test] FAIL: no graphical screen within ${DEADLINE_SECS}s"
 echo "[boot-test] last serial lines:"; tail -n 40 "$SERIAL" 2>/dev/null || true
+if [ "${GATE_SOFT:-false}" = "true" ]; then
+    echo "[boot-test] SOFT mode — continuing so desktop-test can annotate the failure onto the screenshot."
+    exit 0
+fi
 exit 1

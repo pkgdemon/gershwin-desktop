@@ -96,6 +96,7 @@ jobs:
           flavor: freebsd
           iso-dir: artifacts
           arch: amd64
+          soft-fail: true
 
   publish:
     name: publish freebsd-dev

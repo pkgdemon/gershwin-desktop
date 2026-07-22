@@ -93,6 +93,7 @@ jobs:
           flavor: nextbsd
           iso-dir: artifacts
           arch: amd64
+          soft-fail: true
 
   publish:
     name: publish nextbsd-dev

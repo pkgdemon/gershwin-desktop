@@ -80,6 +80,7 @@ jobs:
           flavor: devuan
           iso-dir: artifacts
           arch: amd64
+          soft-fail: true
 
   publish:
     name: publish devuan-dev

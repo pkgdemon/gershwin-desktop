@@ -78,6 +78,7 @@ jobs:
           flavor: archlinux
           iso-dir: artifacts
           arch: amd64
+          soft-fail: true
 
   publish:
     name: publish archlinux-dev

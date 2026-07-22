@@ -96,6 +96,7 @@ jobs:
           flavor: debian
           iso-dir: artifacts
           arch: amd64
+          soft-fail: true
 
   publish:
     name: publish debian-dev

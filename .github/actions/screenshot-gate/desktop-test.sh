@@ -1,8 +1,10 @@
 #!/bin/sh
 # desktop-test.sh — the interactive desktop gate, driven entirely from OUTSIDE
 # the guest over the QEMU monitor (screendump + sendkey; no mouse, nothing
-# installed in-guest). Every numbered step is a HARD gate: any failure exits
-# non-zero, fails the job, and blocks the ISO publish.
+# installed in-guest). Each numbered step is a gate. In HARD mode (rc) the first
+# failure exits non-zero and blocks the publish. In SOFT mode (dev, GATE_SOFT=true)
+# failures are recorded, stamped onto the published screenshot in red, and the job
+# still succeeds so the dev ISO ships (we investigate from the annotated shot).
 #
 #   1. desktop rendered  — OCR must find BOTH "System Disk" and "Workspace"
 #   2. discover Command  — probe sendkey modifiers until Cmd+R opens the Run…
@@ -26,6 +28,8 @@ CMD="${GATE_ABOUT_CMD:-uitest aboutcomputer}"            # run via the Run… di
 MODS="${GATE_CMD_MODS:-meta_l alt altgr meta_r ctrl}"    # GNUstep Command modifier — probed
 FLAVOR="${GATE_FLAVOR:-desktop}"                         # which flavor we're testing (from the caller workflow)
 SHOT="screenshot/gershwin-on-${FLAVOR}.png"              # the ONE published screenshot
+SOFT="${GATE_SOFT:-false}"                               # dev channel: don't block — publish anyway,
+                                                         # stamp the failed checks onto the screenshot in red
 
 mon()  { printf '%s\n' "$*" | socat -t2 - "UNIX-CONNECT:$SOCK" >/dev/null 2>&1 || true; }
 key()  { mon "sendkey $1"; sleep 0.25; }
@@ -76,6 +80,45 @@ save_shot() {   # copy $1 (or a fresh screendump) to the published $SHOT
     magick tests/desktop.ppm "$SHOT" 2>/dev/null || convert tests/desktop.ppm "$SHOT" 2>/dev/null || true
 }
 
+# --- failure handling ---------------------------------------------------------
+# Hard mode (rc): the first failed check exits non-zero and blocks the publish.
+# Soft mode (dev, GATE_SOFT=true): failed checks are recorded and stamped onto the
+# published screenshot in red, but the job still succeeds so the dev ISO ships.
+FAILS=""; LAST=""
+add_fail() { FAILS="${FAILS}${FAILS:+; }$1"; }
+annotate_failures() {   # draw the red failure banner under the About window
+    [ -s "$SHOT" ] || return 0
+    banner="GATE FAILED (dev, not blocking): $FAILS"
+    fopt=""   # ImageMagick needs an explicit font (no reliable default on CI)
+    for _f in /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf \
+              /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; do
+        [ -f "$_f" ] && { fopt="-font $_f"; break; }
+    done
+    magick "$SHOT" $fopt -gravity South -undercolor '#000000C0' -fill red -pointsize 22 \
+        -annotate +0+150 "  $banner  " "$SHOT" 2>/dev/null \
+    || convert "$SHOT" $fopt -gravity South -undercolor '#000000C0' -fill red -pointsize 22 \
+        -annotate +0+150 "  $banner  " "$SHOT" 2>/dev/null || true
+}
+finish() {   # capture the final frame, annotate if anything failed, exit
+    save_shot "$LAST"
+    if [ -n "$FAILS" ]; then
+        annotate_failures
+        echo "[desktop-test] FAILURES: $FAILS"
+        if [ "$SOFT" = "true" ]; then
+            echo "[desktop-test] SOFT mode — published $SHOT with the failures annotated in red (job not blocked)."
+            exit 0
+        fi
+        exit 1
+    fi
+    echo "[desktop-test] PASS: 'About This Computer' + menu bar present — wrote $SHOT (the published screenshot)"
+    exit 0
+}
+gate_fail() {   # $1 = short label (goes on the screenshot), $2 = detail (log only)
+    add_fail "$1"
+    echo "[desktop-test] FAIL: $1 — $2"
+    [ "$SOFT" = "true" ] || finish   # hard mode: stop at the first failure
+}
+
 mkdir -p tests screenshot
 
 # --- 1. desktop rendered: "System Disk" AND "Workspace" -----------------------
@@ -100,14 +143,14 @@ while [ "$(date +%s)" -lt "$END" ]; do
     fi
     sleep 3
 done
+LAST="$f"
 if [ "$up" -ne 1 ]; then
-    save_shot "$f"
-    echo "[desktop-test] FAIL(1): 'System Disk' and 'Workspace' not both OCR-detected within ${DESKTOP_DEADLINE}s."
     echo "[desktop-test]   full-frame OCR:"; printf '%s\n' "${text:-<none>}" | sed 's/^/[ocr] /'
     echo "[desktop-test]   corner OCR:";     printf '%s\n' "${corner:-<none>}" | sed 's/^/[ocr-ne] /'
-    exit 1
+    gate_fail "desktop not rendered" "'System Disk'+'Workspace' not both OCR'd within ${DESKTOP_DEADLINE}s"
+else
+    echo "[desktop-test] 1/5 PASS: desktop is up"
 fi
-echo "[desktop-test] 1/5 PASS: desktop is up"
 
 # --- 2. discover the Command modifier via the Run… dialog ---------------------
 # Run… uses NSCommandKeyMask|NSShiftKeyMask + "R" (confirmed in Workspace.m), so
@@ -127,56 +170,55 @@ for cand in $MODS; do
     echo "[desktop-test]   '$combo' did not open Run… (OCR: $(printf '%s' "$t" | tr '\n' ' ' | grep -oiE 'run|cancel|command' | tr '\n' ',' | sed 's/,$//'))"
 done
 if [ -z "$MOD" ]; then
-    save_shot ""
-    echo "[desktop-test] FAIL(2): no modifier opened the Run… dialog with Cmd+Shift+R (tried: $MODS)."
     echo "[desktop-test]   -> the QEMU keyname for GNUstep's Command modifier is wrong (see run-*.ppm in boot-artifacts),"
     echo "[desktop-test]      or the Run… detection missed the dialog. Set GATE_CMD_MODS and re-run."
-    exit 1
+    gate_fail "Command modifier not found" "no modifier opened the Run… dialog (tried: $MODS)"
 fi
 
-# --- 3. close everything ------------------------------------------------------
-echo "[desktop-test] 3/5 closing open windows (Cmd+W x5)"
-n=0; while [ "$n" -lt 5 ]; do mon "sendkey ${MOD}-w"; sleep 0.4; n=$((n + 1)); done
+# --- 3 & 4. close windows, then open About This Computer (needs the modifier) --
+if [ -n "$MOD" ]; then
+    echo "[desktop-test] 3/5 closing open windows (Cmd+W x5)"
+    n=0; while [ "$n" -lt 5 ]; do mon "sendkey ${MOD}-w"; sleep 0.4; n=$((n + 1)); done
 
-# --- 4. open About This Computer via Run… + uitest ----------------------------
-echo "[desktop-test] 4/5 opening About This Computer ($RUN_KEYS -> '$CMD')"
-key esc
-mon "sendkey $RUN_KEYS"; sleep 1
-type_str "$CMD"
-key ret
-park   # get the mouse pointer out of the About window before we capture the frame
+    echo "[desktop-test] 4/5 opening About This Computer ($RUN_KEYS -> '$CMD')"
+    key esc
+    mon "sendkey $RUN_KEYS"; sleep 1
+    type_str "$CMD"
+    key ret
+    park   # get the mouse pointer out of the About window before we capture the frame
+fi
 
 # --- 5. About This Computer up AND the menu bar STILL present -----------------
 # Require BOTH "About This Computer" and "Workspace" in the SAME (final) frame.
 # "Workspace" was checked in step 1, but the menu bar can crash/vanish between
 # then and the capture (gershwin-desktop/gershwin-components#98) — we must never
 # publish a menu-less screenshot, and a menu that dies after login must fail here.
-echo "[desktop-test] 5/5 verifying 'About This Computer' + menu bar ('Workspace') (<= ${ABOUT_DEADLINE}s)"
-END=$(( $(date +%s) + ABOUT_DEADLINE )); i=0; ok=0; about=0; menu=0; text=""; f=""
-while [ "$(date +%s)" -lt "$END" ]; do
-    i=$((i + 1)); f="tests/about-$(printf '%03d' "$i").ppm"; dump "$f"
-    [ -s "$f" ] || { sleep 2; continue; }
-    text=$(ocr "$f"); about=0; menu=0
-    has 'About[[:space:]]*This[[:space:]]*Computer' "$text" && about=1
-    has 'Workspace' "$text" && menu=1
-    echo "[desktop-test]   frame $i: About=$about Menu(Workspace)=$menu"
-    { [ "$about" -eq 1 ] && [ "$menu" -eq 1 ]; } && { ok=1; break; }
-    sleep 2
-done
-
-# --- 6. capture — always leave $SHOT (the published screenshot) ---------------
-save_shot "$f"
-if [ "$ok" -ne 1 ]; then
-    if [ "$about" -eq 1 ] && [ "$menu" -ne 1 ]; then
-        echo "[desktop-test] FAIL(5): 'About This Computer' is up but the menu bar ('Workspace') is GONE."
-        echo "[desktop-test]   The menu was present at step 1 then crashed/vanished before capture —"
-        echo "[desktop-test]   do NOT publish a menu-less desktop. See gershwin-desktop/gershwin-components#98."
-    else
-        echo "[desktop-test] FAIL(5): 'About This Computer' never appeared."
-        echo "[desktop-test]   Run… opened (modifier '$MOD' works), so the command ran but produced no About window."
-        echo "[desktop-test]   -> likely: Workspace must be started with -d (to vend uitest's DO), or 'uitest' is not on PATH."
-    fi
-    echo "[desktop-test]   last OCR text:"; printf '%s\n' "${text:-<none>}" | sed 's/^/[ocr] /'
-    exit 1
+about=0; menu=0
+if [ -n "$MOD" ]; then
+    echo "[desktop-test] 5/5 verifying 'About This Computer' + menu bar ('Workspace') (<= ${ABOUT_DEADLINE}s)"
+    END=$(( $(date +%s) + ABOUT_DEADLINE )); i=0
+    while [ "$(date +%s)" -lt "$END" ]; do
+        i=$((i + 1)); f="tests/about-$(printf '%03d' "$i").ppm"; dump "$f"
+        [ -s "$f" ] || { sleep 2; continue; }
+        LAST="$f"; text=$(ocr "$f"); about=0; menu=0
+        has 'About[[:space:]]*This[[:space:]]*Computer' "$text" && about=1
+        has 'Workspace' "$text" && menu=1
+        echo "[desktop-test]   frame $i: About=$about Menu(Workspace)=$menu"
+        { [ "$about" -eq 1 ] && [ "$menu" -eq 1 ]; } && break
+        sleep 2
+    done
 fi
-echo "[desktop-test] PASS: 'About This Computer' + menu bar present — wrote $SHOT (the published screenshot)"
+
+# --- 6. record any About/menu failure, then capture + (soft) annotate + exit --
+if [ "$about" -eq 1 ] && [ "$menu" -ne 1 ]; then
+    echo "[desktop-test]   About is up but the 'Workspace' menu is gone (crashed after step 1) — see gershwin-components#98."
+    gate_fail "menu bar missing" "About up but Workspace menu absent at capture (#98)"
+elif [ "$about" -ne 1 ]; then
+    if [ -n "$MOD" ]; then
+        echo "[desktop-test]   Run… opened but no About window — Workspace may need -d (to vend uitest's DO), or uitest not on PATH."
+        gate_fail "About window absent" "uitest ran but produced no About window"
+    else
+        gate_fail "About window absent" "skipped — no Command modifier"
+    fi
+fi
+finish

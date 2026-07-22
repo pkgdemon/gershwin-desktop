@@ -25,6 +25,13 @@ inputs:
     description: CPU arch of the ISO (amd64 supported today; arm64 is a TODO).
     required: false
     default: amd64
+  soft-fail:
+    description: >
+      When 'true' (the dev channel) do NOT block on gate failures — publish the
+      ISO anyway and stamp the failed checks onto the screenshot in red. Default
+      'false' (rc): the first failure fails the job and blocks the release.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -33,7 +40,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf socat imagemagick tesseract-ocr
+        sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf socat imagemagick tesseract-ocr fonts-dejavu-core
 
     - name: Launch VM (serial + VGA + monitor)
       shell: bash
@@ -67,6 +74,8 @@ runs:
 
     - name: boot-test (wait for greeter)
       shell: bash
+      env:
+        GATE_SOFT: ${{ inputs.soft-fail }}
       run: sh "${{ github.action_path }}/boot-test.sh"
 
     # INPUT step: injects the admin login keystrokes into the greeter. It only
@@ -78,13 +87,15 @@ runs:
 
     # GATE: the interactive desktop sequence — desktop renders (System Disk +
     # Workspace) → close windows → open About This Computer (Cmd+R, "uitest
-    # about") → verify it, and capture that frame as the published screenshot.
-    # Every step is a hard gate; any non-zero exit fails the action → the job →
-    # blocks publish (needs.test.result == 'success').
+    # aboutcomputer") → verify About + menu still present, and capture that frame
+    # as the published screenshot. In hard mode (rc) any non-zero exit fails the
+    # action → the job → blocks publish; in soft mode (dev, soft-fail) failures
+    # are annotated in red on the screenshot and the job still succeeds.
     - name: desktop-test (System Disk + Workspace → About This Computer)
       shell: bash
       env:
         GATE_FLAVOR: ${{ inputs.flavor }}
+        GATE_SOFT: ${{ inputs.soft-fail }}
       run: sh "${{ github.action_path }}/desktop-test.sh"
 
     - name: Upload desktop screenshot
