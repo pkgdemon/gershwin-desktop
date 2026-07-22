@@ -68,32 +68,60 @@ runs:
             --prerelease
         fi
 
-        # 2. Upload the NEW ISO first (and replace the screenshot). The old ISO
-        #    stays downloadable until step 3, so there is never a window without a
-        #    valid image. --clobber covers the stable PNG and a same-second rerun.
+        # 2. Upload the NEW ISO + screenshot. Clear the exact target names first —
+        #    a re-run can leave a half-uploaded asset that makes --clobber return
+        #    HTTP 422 "already_exists" — then upload with one retry. Tolerate a
+        #    failure here (set +e) so the reconcile in step 3 still runs: a failed
+        #    upload must NEVER skip cleanup (that is what let old assets pile up).
         upload=("${isos[@]}")
         [ -n "$shot_name" ] && upload+=("$shot_name")
+        for n in "${upload[@]}"; do
+          gh release delete-asset "$TAG" "$n" --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+        done
         echo "==> uploading: ${upload[*]}"
+        set +e
         gh release upload "$TAG" "${upload[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+        rc=$?
+        if [ "$rc" -ne 0 ]; then
+          echo "==> upload failed (rc=$rc); retrying once after 10s…"; sleep 10
+          gh release upload "$TAG" "${upload[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+        fi
+        set -e
 
-        # 3. Prune the previous build: delete any release asset that is NOT one we
-        #    just uploaded — the old ISO, the old screenshot, and any legacy
-        #    *.sha256 sidecars. Both new files are in `keep`, so they survive.
-        keep=" ${upload[*]} "
-        gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
-        | while IFS= read -r a; do
+        # 3. Reconcile against what ACTUALLY landed (never trust the upload blindly).
+        present=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+        if printf '%s\n' "$present" | grep -qxF "$iso_name"; then
+          # the new ISO is up -> prune every asset that is NOT one we just uploaded
+          # (old ISO, old screenshots, orphaned PNGs, legacy *.sha256).
+          keep=" ${upload[*]} "
+          printf '%s\n' "$present" | while IFS= read -r a; do
+            [ -n "$a" ] || continue
             case "$keep" in *" $a "*) continue ;; esac
             echo "==> deleting stale asset $a"
             gh release delete-asset "$TAG" "$a" --repo "$GITHUB_REPOSITORY" --yes
           done
+        else
+          # the ISO never landed -> drop the orphan screenshot so it can't
+          # accumulate, keep the previous release intact, and fail loudly.
+          echo "::error::ISO '$iso_name' did not upload — keeping the previous assets, removing orphan screenshot, failing."
+          [ -n "$shot_name" ] && gh release delete-asset "$TAG" "$shot_name" --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+          exit 1
+        fi
 
-        # 4. Refresh the body: the inline screenshot (named like the ISO) plus the
-        #    build log. No ISO/commit lines — the ISO name is in the image itself.
+        # 4. Refresh the body: inline screenshot, then any recorded gate failures
+        #    (dev soft-fail — rendered as red text UNDER the image), then the log.
         run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        fail_file="${{ github.workspace }}/screenshot/gate-failures.txt"
         {
           if [ -n "$shot_name" ]; then
             printf '![%s](%s/%s/releases/download/%s/%s)\n\n' \
               "$iso_base" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$TAG" "$shot_name"
+          fi
+          if [ -s "$fail_file" ]; then
+            printf '### ❌ Gate failures (dev channel — not blocking)\n\n'
+            printf '```diff\n'
+            sed 's/^/- /' "$fail_file"
+            printf '```\n\n'
           fi
           printf '**Build log:** %s\n' "$run_url"
         } > notes.md

@@ -28,8 +28,10 @@ inputs:
   soft-fail:
     description: >
       When 'true' (the dev channel) do NOT block on gate failures — publish the
-      ISO anyway and stamp the failed checks onto the screenshot in red. Default
-      'false' (rc): the first failure fails the job and blocks the release.
+      ISO anyway and record the failed checks (screenshot/gate-failures.txt) so
+      the publish step lists them as red text under the screenshot in the release
+      body. Default 'false' (rc): the first failure fails the job and blocks the
+      release.
     required: false
     default: 'false'
 
@@ -40,7 +42,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf socat imagemagick tesseract-ocr fonts-dejavu-core
+        sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf socat imagemagick tesseract-ocr
 
     - name: Launch VM (serial + VGA + monitor)
       shell: bash
@@ -90,7 +92,8 @@ runs:
     # aboutcomputer") → verify About + menu still present, and capture that frame
     # as the published screenshot. In hard mode (rc) any non-zero exit fails the
     # action → the job → blocks publish; in soft mode (dev, soft-fail) failures
-    # are annotated in red on the screenshot and the job still succeeds.
+    # are written to gate-failures.txt (listed red in the release body) and the
+    # job still succeeds so the dev ISO ships.
     - name: desktop-test (System Disk + Workspace → About This Computer)
       shell: bash
       env:
@@ -98,12 +101,14 @@ runs:
         GATE_SOFT: ${{ inputs.soft-fail }}
       run: sh "${{ github.action_path }}/desktop-test.sh"
 
-    - name: Upload desktop screenshot
+    - name: Upload desktop screenshot (+ gate failures for the release body)
       if: ${{ always() }}
       uses: actions/upload-artifact@v4
       with:
         name: desktop-screenshot
-        path: screenshot/gershwin-on-${{ inputs.flavor }}.png
+        path: |
+          screenshot/gershwin-on-${{ inputs.flavor }}.png
+          screenshot/gate-failures.txt
         if-no-files-found: ignore
 
     - name: Shut down VM

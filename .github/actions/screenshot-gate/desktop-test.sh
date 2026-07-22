@@ -3,8 +3,9 @@
 # the guest over the QEMU monitor (screendump + sendkey; no mouse, nothing
 # installed in-guest). Each numbered step is a gate. In HARD mode (rc) the first
 # failure exits non-zero and blocks the publish. In SOFT mode (dev, GATE_SOFT=true)
-# failures are recorded, stamped onto the published screenshot in red, and the job
-# still succeeds so the dev ISO ships (we investigate from the annotated shot).
+# failures are recorded to screenshot/gate-failures.txt (the publish step lists
+# them as red text under the screenshot in the release body) and the job still
+# succeeds so the dev ISO ships (we investigate from the release).
 #
 #   1. desktop rendered  — OCR must find BOTH "System Disk" and "Workspace"
 #   2. discover Command  — probe sendkey modifiers until Cmd+R opens the Run…
@@ -86,26 +87,21 @@ save_shot() {   # copy $1 (or a fresh screendump) to the published $SHOT
 # published screenshot in red, but the job still succeeds so the dev ISO ships.
 FAILS=""; LAST=""
 add_fail() { FAILS="${FAILS}${FAILS:+; }$1"; }
-annotate_failures() {   # draw the red failure banner under the About window
-    [ -s "$SHOT" ] || return 0
-    banner="GATE FAILED (dev, not blocking): $FAILS"
-    fopt=""   # ImageMagick needs an explicit font (no reliable default on CI)
-    for _f in /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf \
-              /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; do
-        [ -f "$_f" ] && { fopt="-font $_f"; break; }
-    done
-    magick "$SHOT" $fopt -gravity South -undercolor '#000000C0' -fill red -pointsize 22 \
-        -annotate +0+150 "  $banner  " "$SHOT" 2>/dev/null \
-    || convert "$SHOT" $fopt -gravity South -undercolor '#000000C0' -fill red -pointsize 22 \
-        -annotate +0+150 "  $banner  " "$SHOT" 2>/dev/null || true
+write_failures() {   # record the failed checks (one per line) for the publish step
+    # to render under the screenshot in the release body. The screenshot itself is
+    # left clean — the failure list is text, not baked into the image.
+    mkdir -p screenshot
+    : > screenshot/gate-failures.txt
+    [ -n "$FAILS" ] && printf '%s' "$FAILS" | tr ';' '\n' | sed 's/^ *//; /^$/d' \
+        > screenshot/gate-failures.txt
 }
-finish() {   # capture the final frame, annotate if anything failed, exit
+finish() {   # capture the final frame, record failures, exit
     save_shot "$LAST"
+    write_failures
     if [ -n "$FAILS" ]; then
-        annotate_failures
         echo "[desktop-test] FAILURES: $FAILS"
         if [ "$SOFT" = "true" ]; then
-            echo "[desktop-test] SOFT mode — published $SHOT with the failures annotated in red (job not blocked)."
+            echo "[desktop-test] SOFT mode — published; failures recorded for the release body (job not blocked)."
             exit 0
         fi
         exit 1
