@@ -34,7 +34,7 @@ jobs:
       - name: Resolve gershwin-developer ref (dev if it exists, else main)
         id: gd
         run: |
-          if git ls-remote --exit-code --heads https://github.com/gershwin-desktop/gershwin-developer.git dev >/dev/null 2>&1; then
+          if git ls-remote --exit-code --heads https://github.com/pkgdemon/gershwin-developer.git dev >/dev/null 2>&1; then
             echo "ref=dev" >> "$GITHUB_OUTPUT"; echo "gershwin-developer: using dev branch"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"; echo "gershwin-developer: no dev branch — using main"
@@ -99,7 +99,7 @@ jobs:
     name: publish nextbsd-dev
     # Public release is gated on boot + login + screenshot all passing.
     needs: [build, test]
-    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && needs.build.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
