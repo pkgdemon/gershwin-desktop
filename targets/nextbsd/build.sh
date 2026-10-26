@@ -359,9 +359,9 @@ echo "==> live ISO: compact UFS + mkuzip (zstd)"
 #     + the biggest directories that ship in the rootfs. Ground truth for what
 #     inflates the image (pkg logs only show aggregate sizes). Non-fatal.
 echo "=================== ISO SIZE REPORT (nextbsd) ==================="
-echo "--- installed packages by flatsize (MiB, top 40) ---"
-chroot "$ROOTFS" pkg query '%sb %n-%v' 2>/dev/null \
-  | sort -rn | awk '{printf "  %9.1f  %s\n", $1/1048576, $2}' | head -40 || true
+echo "--- every installed package by flatsize (all NextBSD packages) ---"
+pkg -r "$ROOTFS" query '%sb %n %sh' 2>/dev/null \
+  | sort -rn | awk '{printf "  %-34s %s\n", $2, $3}' || true
 echo "--- total installed (all packages, MiB) ---"
 chroot "$ROOTFS" pkg query '%sb' 2>/dev/null \
   | awk '{s+=$1} END{printf "  %9.1f  (n=%d packages)\n", s/1048576, NR}' || true
@@ -373,6 +373,8 @@ echo "--- inside /usr/local/share (MiB, top 20) ---"
 du -sm "$ROOTFS"/usr/local/share/* 2>/dev/null | sort -rn | head -20 || true
 echo "--- inside /usr/local/lib (MiB, top 20) ---"
 du -sm "$ROOTFS"/usr/local/lib/* 2>/dev/null | sort -rn | head -20 || true
+echo "--- rootfs: Gershwin's own trees vs. package-owned files (MiB) ---"
+du -sm "$ROOTFS"/System "$ROOTFS"/Developer "$ROOTFS"/Local 2>/dev/null || true
 echo "--- rootfs total (MiB) ---"; du -sm "$ROOTFS" 2>/dev/null || true
 echo "================================================================"
 makefs -t ffs -B little -o version=2,label=NBROOT "$WORK/rootfs.iso.ufs" "$ROOTFS"
@@ -433,6 +435,7 @@ makefs -t ffs -B little -o version=2,label=NBROOT "$WORK/rootfs.iso.ufs" "$ROOTF
 # -d de-duplicates identical clusters; -S prints the achieved ratio.
 mkuzip -A zstd -C 19 -s 1044480 -d -S -o "$WORK/rootfs.uzip" "$WORK/rootfs.iso.ufs"
 ls -lh "$WORK/rootfs.uzip"
+echo "==> compressed rootfs.uzip: $(du -h "$WORK/rootfs.uzip" | cut -f1) (uncompressed UFS: $(du -h "$WORK/rootfs.iso.ufs" | cut -f1))"
 
 echo "==> staging mfsroot (rootfs tools + lib closure)"
 MFS="$WORK/mfsroot"
@@ -559,4 +562,5 @@ MKISO=$(find "$SRC" -path "*/release/${ARCH}/mkisoimages.sh" 2>/dev/null | head 
 echo "==> mkisoimages.sh: bootable cd9660 (BIOS + UEFI)"
 sh "$MKISO" -b "$LABEL" "$OUT/$ISO_NAME" "$ISOROOT"
 ls -lh "$OUT/$ISO_NAME"
+echo "==> ISO size: $(du -h "$OUT/$ISO_NAME" | cut -f1) ($(stat -f %z "$OUT/$ISO_NAME") bytes)"
 echo "==> DONE: $ISO_NAME"
