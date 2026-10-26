@@ -1,66 +1,27 @@
-# Runtime packages baked into the Gershwin-on-NextBSD live ISO from the FreeBSD
-# ports repo (pkg.FreeBSD.org). These are runtime prerequisites Gershwin needs
-# but its build (Bootstrap.sh/Checkout.sh/make install) does NOT install itself.
-#
-# Why this file exists: Gershwin requires "xorg or xlibre" (gershwin-developer
-# README) but never installs an X server — it historically relied on the NextBSD
-# base IMAGE bundling XLibre. Since nextbsd-redux/nextbsd rebuilt its image from
-# packages (NextBSD-everything) it no longer ships XLibre, so gershwin-on-nextbsd
-# must bake it in here. The X *client* libs (cairo, libXft, dbus, ...) are
-# already installed into the rootfs by Gershwin's Bootstrap.sh during the chroot
-# build and persist — so the only runtime gap is the X *server* + drivers.
+# Runtime packages baked into the Gershwin-on-NextBSD live ISO. NextBSD packages
+# only, installed from the NextBSD repository (`pkg install -r NextBSD`); the
+# build configures no FreeBSD repository. These are runtime prerequisites
+# Gershwin needs but its build (bootstrap.sh, checkout.sh, make install) does
+# not install itself: gershwin-developer's Library/OSSupport/nextbsd.txt brings
+# the X client libraries, Mesa, gnustep-support, printing-support and the
+# toolchain (with git), but no X server.
 #
 # pkg resolves each package's full dependency closure automatically. One package
 # per line; blank lines and #-comments are ignored.
 
-# git — so a user on the booted live system can clone gershwin-developer and
-# rebuild/update from source (Gershwin's Bootstrap.sh already pulls git into the
-# rootfs during the chroot build; listed here to match nextbsd's former set).
-git
+# The X server, in /usr/X11 (X -> Xorg, setuid): XLibre 25.1.9 with the
+# modesetting, scfb and vesa video drivers and the evdev, libinput, kbd, mouse,
+# synaptics, joystick and vmmouse input drivers, plus the X tools Gershwin's
+# panes run: xset (Energy), setxkbmap and xkbcomp (Keyboard, LoginWindow),
+# xinput (Mouse) and xrandr. Pulls in displayserver-support, xlibs, mesa and
+# mesa-x11. vesa and vmmouse are amd64 only.
+NextBSD-xlibre
 
-# sudo — so a user on the booted live system can run administrative commands
-# (FreeBSD base ships no sudo).
-sudo
-
-# X11 (XLibre) — the SAME minimal set nextbsd-redux/nextbsd used to bundle
-# (nextbsd commit 1883bd8/a4d344a, dropped in 3564c03 when its base went lean).
-# A minimal X server + laptop/VM input+video drivers so the desktop can start;
-# NOT the full xlibre/xorg metaport.
-xlibre-minimal
-xlibre-xf86-input-evdev
-xlibre-xf86-input-joystick
-xlibre-xf86-input-keyboard
-xlibre-xf86-input-mouse
-xlibre-xf86-input-synaptics
-xlibre-xf86-input-vmmouse
-xlibre-xf86-video-scfb
-xlibre-xf86-video-vesa
-
-# Mesa DRI drivers (swrast + hardware, e.g. i915/iris) — the GL implementation
-# behind /usr/local/lib/dri/*_dri.so. Gershwin's Bootstrap.sh pulls mesa-libs
-# (libGL/libEGL/libgbm) but mesa-libs does NOT depend on mesa-dri, so without
-# this the X server logs "AIGLX error: dlopen of .../swrast_dri.so failed" and
-# "GLX: no usable GL providers", leaving the desktop with no working OpenGL.
-mesa-dri
-
-# Command line tools useful in the installed system
-nano
-
-# Needed for Whisper to enter text directly into windows
-xdotool
-
-# Needed for Energy prefPane
-xset
-
-# Needed for Keyboard prefPane
-setxkbmap
-
-# Needed for Mouse prefPane
-xinput
-
-# ALSA sequencer for networkmidid (network MIDI) and MIDI applications:
-# alsa-seq-server provides /dev/snd/seq through cuse and bridges USB MIDI
-# devices into it; alsa-utils brings aconnect and aseqdump.
-alsa-lib
-alsa-seq-server
-alsa-utils
+# Not listed, because the base system (NextBSD-everything) has them:
+#   sudo, and pico (also installed as nano)  - NextBSD-contrib
+#   git                                      - NextBSD-toolchain, via nextbsd.txt
+#
+# Dropped, because NextBSD has no package for them and they are not needed to
+# boot to the desktop: xdotool (Whisper), alsa-lib/alsa-seq-server/alsa-utils
+# (networkmidid, MIDI), and the FreeBSD xlibre-*/mesa-dri set that NextBSD-xlibre
+# and NextBSD-mesa replace.

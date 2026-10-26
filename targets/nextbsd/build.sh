@@ -3,19 +3,25 @@
 #
 # Runs inside a FreeBSD 15.1 VM (vmactions). The NextBSD base+kernel+Darwin
 # userland+kexts are laid down by ONE `pkg install NextBSD-everything` out of
-# the nextbsd-pkg flat repo (the same source of truth nextbsd-redux/nextbsd's
-# own build.sh now uses — #359), NOT by downloading a prebuilt continuous .img
-# and ripping its rootfs out of GPT p3. The user-editable /etc config is seeded
-# from the nextbsd-overlays repo (deliberately NOT package-owned). We then
-# chroot-build the Gershwin desktop into that rootfs, lay the Gershwin launchd
-# overlay (loginwindow/dshelper/gdomap + the D-Bus system bus) on top, and
+# the nextbsd-pkg flat repo (the same source of truth nextbsd/nextbsd's own
+# build.sh uses), NOT by downloading a prebuilt continuous .img and ripping its
+# rootfs out of GPT p3. The user-editable /etc config, pkg's configuration
+# included, is seeded from the nextbsd-overlays repo (deliberately NOT
+# package-owned). We then chroot-build the Gershwin desktop into that rootfs,
+# lay the Gershwin launchd overlay (loginwindow/dshelper/gdomap) on top, and
 # repackage the result into a live ISO that boots exactly like NextBSD's own —
 # a tiny mfsroot assembles an on-demand uzip-compressed root + tmpfs/unionfs
 # overlay, then `sysctl vfs.pivot` adopts the union as / and execs launchd.
 #
-# The rootfs-assembly half (steps 1-4) mirrors nextbsd-redux/nextbsd build.sh
+# The rootfs-assembly half (steps 1-4) mirrors nextbsd/nextbsd build.sh
 # steps 1-6; the ISO-building half (steps 6-8) mirrors its step 7 — so both the
 # package set and the boot pipeline stay identical to upstream NextBSD.
+#
+# Every package in the image comes from the NextBSD repository: the build never
+# configures or uses a FreeBSD repository, and the image ships none. Gershwin's
+# build requirements are NextBSD packages (gershwin-developer's
+# Library/OSSupport/nextbsd.txt, NextBSD-toolchain among them, which brings
+# git), and pkglist.txt adds NextBSD's X server.
 set -eu
 
 ARCH=${TARGET_ARCH:-amd64}
@@ -25,8 +31,8 @@ CWD=$(cd "$(dirname "$0")" && pwd)
 WORK=/usr/local/gon-build
 ROOTFS=$WORK/rootfs
 OUT=$WORK/iso
-GERSHWIN_REPO=${GERSHWIN_REPO:-https://github.com/gershwin-desktop/gershwin-developer.git}
-GERSHWIN_REF=${GERSHWIN_REF:-main}
+GERSHWIN_REPO=${GERSHWIN_REPO:-https://github.com/pkgdemon/gershwin-developer.git}
+GERSHWIN_REF=${GERSHWIN_REF:-dev}
 # Optional source-repo branch passed to checkout.sh (e.g. GERSHWIN_BRANCH=dev for
 # the dev channel). Empty = default branches, per-repo fallback. See checkout.sh.
 GERSHWIN_BRANCH="${GERSHWIN_BRANCH:-}"
@@ -50,7 +56,7 @@ ISO_NAME="gershwin-on-${FLAVOR}-${CHANNEL:+${CHANNEL}-}${IMG_DATE}-${ARCH_LABEL}
 case "$ARCH" in arm64|aarch64) ABIARCH=aarch64 ;; *) ABIARCH="$ARCH" ;; esac
 PKG_ABI="FreeBSD:15:${ABIARCH}"
 # nextbsd-pkg flat repo: per-arch rolling release tag (continuous-<arch>).
-PKG_REPO_URL="https://github.com/nextbsd-redux/nextbsd-pkg/releases/download/continuous-${ARCH}"
+PKG_REPO_URL="https://github.com/nextbsd/nextbsd-pkg/releases/download/continuous-${ARCH}"
 
 rm -rf "$WORK"
 mkdir -p "$WORK" "$ROOTFS" "$OUT"
@@ -139,7 +145,7 @@ echo "==> nextbsd-overlays /etc seed (the /private layout was laid in step 1, be
 
 OVL="$WORK/nextbsd-overlays"
 rm -rf "$OVL"
-git clone --depth 1 https://github.com/nextbsd-redux/nextbsd-overlays "$OVL"
+git clone --depth 1 https://github.com/nextbsd/nextbsd-overlays "$OVL"
 cp -R "$OVL/rootfs/." "$ROOTFS/"
 chmod 0600 "$ROOTFS/private/etc/master.passwd"
 [ -s "$ROOTFS/private/etc/master.passwd" ] || { echo "ERROR: nextbsd-overlays seed produced no master.passwd" >&2; exit 1; }
@@ -155,47 +161,33 @@ chmod 644 "$ROOTFS/var/run/utx.active" "$ROOTFS/var/log/utx.lastlogin" "$ROOTFS/
 mkdir -p "$ROOTFS/root"; chmod 0700 "$ROOTFS/root"
 
 # ---------------------------------------------------------------------------
-# 3. Regenerate /etc databases + configure pkg repos in the SHIPPED image so
-#    the Gershwin chroot build (and a user later) can `pkg install` out of the
-#    box. Two repos: FreeBSD ports (Gershwin's deps) + the NextBSD flat repo.
+# 3. Regenerate /etc databases and check the image's pkg configuration. pkg's
+#    configuration comes from nextbsd-overlays (step 2), exactly as on a plain
+#    NextBSD image: /private/etc/pkg.conf and /private/etc/pkg/NextBSD.conf,
+#    the NextBSD repository only. This build writes no pkg configuration of its
+#    own and no FreeBSD repository file, so the Gershwin chroot build (and a
+#    user later) installs from the NextBSD repository and nothing else.
 # ---------------------------------------------------------------------------
-echo "==> regenerate /etc databases + configure image pkg repos"
+echo "==> regenerate /etc databases + check the image's pkg configuration"
 chown -RH 0:0 "$ROOTFS/etc" 2>/dev/null || true
 pwd_mkdb -p -d "$ROOTFS/etc" "$ROOTFS/etc/master.passwd"
 [ -f "$ROOTFS/etc/login.conf" ] && cap_mkdb "$ROOTFS/etc/login.conf"
 [ -f "$ROOTFS/usr/share/misc/termcap" ] && cap_mkdb "$ROOTFS/usr/share/misc/termcap" || true
 env DESTDIR="$ROOTFS" certctl rehash 2>/dev/null || true
 
-mkdir -p "$ROOTFS/usr/local/etc/pkg/repos"
-cat > "$ROOTFS/usr/local/etc/pkg/repos/FreeBSD.conf" <<CONF
-FreeBSD: {
-  url: "pkg+https://pkg.FreeBSD.org/FreeBSD:15:${ABIARCH}/latest",
-  mirror_type: "srv",
-  enabled: yes
-}
-CONF
-cat > "$ROOTFS/usr/local/etc/pkg/repos/NextBSD.conf" <<CONF
-NextBSD: {
-  url: "${PKG_REPO_URL}",
-  enabled: yes,
-  signature_type: none,
-}
-CONF
-cat > "$ROOTFS/usr/local/etc/pkg.conf" <<CONF
-ABI = "FreeBSD:15:${ABIARCH}";
-IGNORE_OSVERSION = yes;
-CONF
+for _pc in pkg.conf pkg/NextBSD.conf; do
+    [ -s "$ROOTFS/private/etc/$_pc" ] || { echo "ERROR: nextbsd-overlays seed produced no /private/etc/$_pc" >&2; exit 1; }
+done
 
 # ---------------------------------------------------------------------------
-# 4. Version identity — the SAME /etc/os-release nextbsd-redux/nextbsd build.sh
+# 4. Version identity — the SAME /etc/os-release nextbsd/nextbsd build.sh
 #    writes (it is NOT shipped by the package or nextbsd-overlays). Two reasons
 #    it MUST exist before the chroot build below:
 #      - Gershwin's Bootstrap.sh keys its dependency set off `. /etc/os-release`
 #        -> $ID. Without it, Bootstrap falls back to `uname -s`, which inside the
 #        chroot is the vmactions VM's FreeBSD kernel, NOT NextBSD -> it would pick
-#        Library/OSSupport/freebsd.txt and `pkg install mDNSResponder`, which
-#        collides with NextBSD's own base mDNSResponder. ID=nextbsd selects
-#        nextbsd.txt (which correctly omits it).
+#        Library/OSSupport/freebsd.txt, a list of FreeBSD ports. ID=nextbsd
+#        selects nextbsd.txt, which names only NextBSD packages.
 #      - It brands the shipped image and gives nextbsd-version a value.
 # ---------------------------------------------------------------------------
 echo "==> version identity: /etc/os-release (ID=nextbsd) + nextbsd-version"
@@ -219,9 +211,11 @@ fi
 # ---------------------------------------------------------------------------
 # 5. Build Gershwin into the rootfs via chroot (network for pkg + git clone).
 #    Same flow as the other Gershwin targets; detect_platform() takes the
-#    NextBSD path because /usr/lib/system exists in the rootfs. Gershwin's
-#    Bootstrap.sh installs the X11/dbus/cairo/... build+runtime deps from the
-#    FreeBSD repo configured in step 3.
+#    NextBSD path because /usr/lib/system exists in the rootfs. git comes
+#    from NextBSD-toolchain (Apple's Git, with clang, gmake, pkgconf, CMake and
+#    the autotools), installed first so the clone can run; Gershwin's
+#    bootstrap.sh then installs the rest of nextbsd.txt (X client libraries,
+#    Mesa, gnustep-support, printing-support), all from the NextBSD repo.
 # ---------------------------------------------------------------------------
 echo "==> chroot build: Gershwin -> /System"
 # SHALLOW=1: the image keeps the sources but not their git history, which is
@@ -229,7 +223,7 @@ echo "==> chroot build: Gershwin -> /System"
 mount -t devfs devfs "$ROOTFS/dev"
 cp /etc/resolv.conf "$ROOTFS/private/etc/resolv.conf"
 chroot "$ROOTFS" /bin/sh -eu -c '
-    pkg install -y git
+    pkg install -y -r NextBSD NextBSD-toolchain
     git clone --depth 1 -b '"$GERSHWIN_REF"' '"$GERSHWIN_REPO"' /Developer
     cd /Developer
     sh Library/Scripts/bootstrap.sh
@@ -240,25 +234,24 @@ chroot "$ROOTFS" /bin/sh -eu -c '
 
 # ---------------------------------------------------------------------------
 # 6. Bake the runtime prerequisites Gershwin needs but never installs itself —
-#    the XLibre X server + input/video drivers (pkglist.txt). Gershwin's
-#    LoginWindow execs /usr/local/bin/X at boot; its Bootstrap.sh installs only
-#    the X *client* libs, and the NextBSD base no longer bundles a server (it
-#    rebuilt from packages), so the desktop can't start without this. Installed
-#    IN THE CHROOT (devfs + resolv.conf still present from step 5) so each
-#    package's post-install scripts run natively; pkg resolves the full closure
-#    from the FreeBSD repo configured in step 3.
+#    NextBSD's X server (pkglist.txt: NextBSD-xlibre, in /usr/X11). Gershwin's
+#    bootstrap.sh installs only the X *client* libs, and NextBSD-everything
+#    has no X server, so the desktop can't start without this. Installed IN THE
+#    CHROOT (devfs + resolv.conf still present from step 5), from the NextBSD
+#    repository only.
 # ---------------------------------------------------------------------------
 if [ -f "$CWD/pkglist.txt" ]; then
     EXTRA_PKGS=$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$CWD/pkglist.txt" | tr '\n' ' ')
     if [ -n "$EXTRA_PKGS" ]; then
         echo "==> installing pkglist.txt runtime prerequisites: $EXTRA_PKGS"
-        chroot "$ROOTFS" /bin/sh -eu -c "pkg install -y $EXTRA_PKGS"
+        chroot "$ROOTFS" /bin/sh -eu -c "pkg install -y -r NextBSD $EXTRA_PKGS"
     fi
 fi
 
 # ---------------------------------------------------------------------------
-# 7. Gershwin launchd overlay: loginwindow/dshelper/gdomap + the D-Bus system
-#    bus (keep base getty as a rescue console on the other VTs).
+# 7. Gershwin launchd overlay: loginwindow/dshelper/gdomap (keep base getty as
+#    a rescue console on the other VTs). No D-Bus: NextBSD ships none, and
+#    nothing in Gershwin uses the system bus outside Linux.
 # ---------------------------------------------------------------------------
 echo "==> applying Gershwin launchd overlay (loginwindow alongside getty)"
 cp -aR "$CWD/overlays/." "$ROOTFS/"
@@ -267,17 +260,6 @@ cp -aR "$CWD/overlays/." "$ROOTFS/"
 # removed -- if the greeter/X dies there is no console login on any VT and the
 # machine is reachable only via SSH. Retaining getty leaves a text rescue
 # console on the other VTs. loginwindow stays the primary GUI greeter.
-
-# D-Bus system bus: the org.freedesktop.dbus-system LaunchDaemon (overlay) runs
-# `dbus-daemon --system` in the foreground. It needs a machine-id (generate now
-# so every live boot has one) and the /var/run/dbus socket dir to exist; the
-# live overlay makes /var writable so the socket itself is created at runtime.
-echo "==> D-Bus: machine-id + /var/run/dbus socket dir"
-chroot "$ROOTFS" /bin/sh -eu -c '
-    /usr/local/bin/dbus-uuidgen --ensure
-    mkdir -p /var/run/dbus
-'
-[ -x "$ROOTFS/usr/local/bin/dbus-daemon" ] || { echo "ERROR: dbus-daemon absent -- Gershwin Bootstrap should have installed the dbus package" >&2; exit 1; }
 
 # Initialize Gershwin DirectoryServices so loginwindow can authenticate: dscli
 # init creates /Local (the local DS node) and /Volumes. dscli ships in
@@ -297,8 +279,9 @@ chroot "$ROOTFS" /bin/sh -c 'chown 5000:5000 /Local/Users/admin'
 # second 'admin' -- Gershwin owns the user database, so we leave it entirely to
 # dscli (which also sets the correct /Local ownership; we must not disturb it).
 
-# purge the pkg cache before makefs bakes the tree in. All three install phases
-# (NextBSD-everything, Gershwin's Bootstrap.sh deps, pkglist.txt) leave the
+# purge the pkg cache before makefs bakes the tree in. All the install phases
+# (NextBSD-everything, NextBSD-toolchain, Gershwin's bootstrap.sh deps,
+# pkglist.txt) leave the
 # downloaded package tarballs + metadata under /var/cache/pkg in the rootfs;
 # nothing needs them at runtime, and they otherwise go straight into the
 # compressed image. Run in the chroot (devfs still mounted from step 5) so pkg
@@ -326,7 +309,7 @@ rm -rf "$ROOTFS/private/var/db/pkg/repos"
 rm -rf "$ROOTFS/private/etc/resolv.conf"
 umount "$ROOTFS/dev" || true
 
-# Retire the kld* user CLIs, exactly as nextbsd-redux/nextbsd build.sh does so
+# Retire the kld* user CLIs, exactly as nextbsd/nextbsd build.sh does so
 # the Gershwin ISO carries the same Apple-shape base: macOS ships kextload/
 # kextstat, not kldload. Only the CLI front-ends go; the kld*(2) syscalls stay
 # and kext_tools provides the replacements. Harmless if a name is absent.
@@ -353,6 +336,21 @@ if [ -f "$CWD/pkglist.txt" ]; then
     assert_pkgs_installed "$WORK/pkglist-names.txt"
 fi
 
+# NextBSD packages only: nothing in the image may come from another
+# repository, and no other repository may be configured in it.
+echo "==> asserting every installed package is a NextBSD package"
+_foreign=$(pkg -r "$ROOTFS" query '%n' | grep -v -e '^NextBSD-' -e '^pkg$' || true)
+if [ -n "$_foreign" ]; then
+    echo "ERROR: packages that are not NextBSD packages are installed:" >&2
+    echo "$_foreign" | sed 's/^/  /' >&2
+    exit 1
+fi
+if [ -d "$ROOTFS/usr/local/etc/pkg/repos" ] && [ -n "$(ls -A "$ROOTFS/usr/local/etc/pkg/repos")" ]; then
+    echo "ERROR: the image configures extra pkg repositories:" >&2
+    ls -A "$ROOTFS/usr/local/etc/pkg/repos" >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # 8-10. Repackage as a live ISO (nextbsd build.sh step 7 model, verbatim).
 # ---------------------------------------------------------------------------
@@ -368,7 +366,7 @@ echo "--- total installed (all packages, MiB) ---"
 chroot "$ROOTFS" pkg query '%sb' 2>/dev/null \
   | awk '{s+=$1} END{printf "  %9.1f  (n=%d packages)\n", s/1048576, NR}' || true
 echo "--- biggest directories in the rootfs (MiB, top 30) ---"
-du -sm "$ROOTFS"/usr/local/* "$ROOTFS"/Developer \
+du -sm "$ROOTFS"/usr/local/* "$ROOTFS"/usr/X11 "$ROOTFS"/usr/share "$ROOTFS"/usr/bin "$ROOTFS"/Developer \
        "$ROOTFS"/System "$ROOTFS"/usr/lib "$ROOTFS"/boot 2>/dev/null \
   | sort -rn | head -30 || true
 echo "--- inside /usr/local/share (MiB, top 20) ---"
@@ -544,16 +542,11 @@ mfsroot_type="md_image"
 mfsroot_name="/boot/mfsroot.img"
 init_path="/init"
 vfs.root.mountfrom="ufs:/dev/md0"
-# cuse(3) for alsa-seq-server, the ALSA sequencer (/dev/snd/seq) that
-# networkmidid and MIDI applications use. On FreeBSD its rc script loads it;
-# launchd runs no rc scripts and the kld* tools are gone, so the loader
-# brings it in.
-cuse_load="YES"
 LIVEEOF
 cp "$WORK/rootfs.uzip" "$ISOROOT/rootfs.uzip"
 
 # Use FreeBSD's stock release scripts from src.txz (matching the base version),
-# exactly as nextbsd-redux/nextbsd does — the full tree resolves mkisoimages.sh's
+# exactly as nextbsd/nextbsd does — the full tree resolves mkisoimages.sh's
 # relative sources (scripts/tools.subr, tools/boot/install-boot.sh).
 echo "==> fetching FreeBSD ${FREEBSD_VERSION} src.txz for release scripts"
 SRC="$WORK/freebsd-src"
