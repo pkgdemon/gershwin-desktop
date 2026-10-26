@@ -99,7 +99,7 @@ jobs:
     name: publish nextbsd-dev
     # Public release is gated on boot + login + screenshot all passing.
     needs: [build, test]
-    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.build.result == 'success' && needs.test.result == 'success' }}
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && needs.build.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
