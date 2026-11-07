@@ -17,6 +17,12 @@
 # mesa-x11. vesa and vmmouse are amd64 only.
 NextBSD-xlibre
 
+# The grey boot splash (E19, nextbsd/nextbsd#542): ships only
+# /boot/loader.conf.d/bootsplash.conf with bootsplash_style="grey" (#5F6770,
+# LoginWindow's root colour), so the splash hands over to the greeter with an
+# exact match. Without it the loader and kernel use the built-in black style.
+NextBSD-bootloader-gershwin
+
 # Not listed, because the base system (NextBSD-everything) has them:
 #   sudo, and pico (also installed as nano)  - NextBSD-contrib
 #   git                                      - NextBSD-toolchain, via nextbsd.txt
