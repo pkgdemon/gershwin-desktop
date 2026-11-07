@@ -14,7 +14,11 @@
 #   (a) OCR reads the greeter panel (its field labels or buttons), or
 #   (b) it is stable (identical to the previous poll and to a re-dump taken a
 #       moment later, so a spinning splash cannot pass) AND differs from the
-#       first graphical frame seen (the splash, when there is one).
+#       first graphical frame seen (the splash, when there is one), or
+#   (c) it is unchanged across STABLE_POLLS consecutive polls (~30 s). A live
+#       splash spinner never holds still that long; this covers a greeter that
+#       is the first graphical frame and that OCR cannot read (e.g. dark text
+#       over a busy wallpaper).
 set -u
 
 SOCK=tests/mon.sock
@@ -22,6 +26,7 @@ SERIAL=tests/serial.log
 FRAMES=tests/frames
 DEADLINE_SECS=600          # 10 min hard cap (job has its own timeout too)
 COLOR_THRESHOLD=64         # >this many unique colors => treat as graphical
+STABLE_POLLS=4             # identical graphical frames in a row => settled
 
 mkdir -p "$FRAMES"
 : > "$SERIAL" 2>/dev/null || true
@@ -29,11 +34,17 @@ mkdir -p "$FRAMES"
 mon() { printf '%s\n' "$*" | socat -t2 - "UNIX-CONNECT:$SOCK" >/dev/null 2>&1 || true; }
 colors() { identify -format '%k' "$1" 2>/dev/null || echo 0; }
 same()   { cmp -s "$1" "$2"; }
-# OCR the frame; tesseract and ImageMagick are installed by action.yml.
+im() { magick "$@" 2>/dev/null || convert "$@" 2>/dev/null; }
+# OCR the frame; tesseract and ImageMagick are installed by action.yml. The
+# full frame first, then the centre (where the greeter panel sits) greyscaled,
+# as a uniform block and as sparse text: over a busy wallpaper a full-frame
+# pass can miss the panel's labels entirely.
 ocr() {
     command -v tesseract >/dev/null 2>&1 || return 1
-    magick "$1" -resize 200% "$1.png" 2>/dev/null || convert "$1" -resize 200% "$1.png" 2>/dev/null || return 1
-    tesseract "$1.png" - 2>/dev/null | tr -d '\r'
+    im "$1" -resize 200% "$1.png" && tesseract "$1.png" - 2>/dev/null | tr -d '\r'
+    im "$1" -gravity center -crop 60%x80%+0+0 +repage -colorspace Gray -resize 200% "$1.c.png" || return 0
+    tesseract "$1.c.png" - --psm 6 2>/dev/null | tr -d '\r'
+    tesseract "$1.c.png" - --psm 11 2>/dev/null | tr -d '\r'
 }
 # Greeter panel text: the field labels and the buttons. The hostname title is
 # not used, because the loader menu also prints "NextBSD" and a graphical
@@ -50,6 +61,7 @@ END=$(( $(date +%s) + DEADLINE_SECS ))
 i=0
 first=""     # first graphical frame (the splash, if the ISO has one)
 prev=""      # previous graphical frame
+run=0        # how many graphical frames in a row were identical
 while [ "$(date +%s)" -lt "$END" ]; do
     i=$((i + 1))
     f="$FRAMES/frame-$(printf '%03d' "$i").ppm"
@@ -75,10 +87,16 @@ while [ "$(date +%s)" -lt "$END" ]; do
                 exit 0
             fi
         fi
+        if [ -n "$prev" ] && same "$f" "$prev"; then run=$((run + 1)); else run=1; fi
+        if [ "$run" -ge "$STABLE_POLLS" ]; then
+            echo "[boot-test] PASS: graphical frame unchanged for $run polls (${c} colors) — greeter is up"
+            cp "$f" tests/greeter.ppm 2>/dev/null || true
+            exit 0
+        fi
         echo "[boot-test] frame $i: graphical, but not the greeter yet (splash or still drawing)"
         prev="$f"
     else
-        prev=""
+        prev=""; run=0
     fi
     sleep 8
 done
